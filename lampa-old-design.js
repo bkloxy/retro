@@ -1,17 +1,28 @@
 /*
- * Lampa plugin: «Старый дизайн» (v1.0)
- *  1. Квадратные постеры (прямые углы) вместо скруглённых.
- *  2. Название, оригинальное название, год и рейтинг — НАВЕРХУ над рядами (как в версии 2021 года),
- *     а не внизу под постером / на постере. Обновляется при перемещении фокуса по карточкам.
- *  3. Вместо названия — логотип фильма (если он есть на TMDB). Если логотипа нет — обычный текст.
+ * Lampa plugin: "Old design" (v1.1)
+ *  1. Square posters (sharp corners) instead of rounded ones.
+ *  2. Title, original title, year and rating shown ABOVE the rows (like the 2021 version)
+ *     instead of under/on the poster. Updates as the focus moves between cards.
+ *  3. A movie logo instead of the title (if TMDB has one). No logo - plain text.
  *
- * Все три пункта включаются и выключаются в Настройки → «Старый дизайн».
- * Плагин не заменяет ядро Lampa: только стили и один блок над рядами на главной.
+ * In v1.1 only square posters are enabled by default (safe mode).
+ * Items 2 and 3 are experimental: enable them manually in Settings -> "Old design".
+ * Crash guard: if the plugin fails to start twice in a row, it disables itself.
+ * The plugin does not replace Lampa core: only styles and one block above the rows on the home screen.
  */
 (function () {
   'use strict';
   if (window.oldui_plugin_ready) return;
   window.oldui_plugin_ready = true;
+
+  var VER = '1.1', GK = 'oldui_guard';
+  function gget() { try { return JSON.parse(localStorage.getItem(GK) || '{}'); } catch (e) { return {}; } }
+  function gset(o) { try { localStorage.setItem(GK, JSON.stringify(o)); } catch (e) {} }
+  var g = gget();
+  if (g.v !== VER) g = { v: VER, boot: 0 };
+  if (g.boot >= 2) { try { console.log('[oldui] safe mode: \u043f\u043b\u0430\u0433\u0438\u043d \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d, \u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0438\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0438 \u043d\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043b\u0438\u0441\u044c'); } catch (e) {} return; }
+  g.boot = (g.boot || 0) + 1; gset(g);
+  setTimeout(function () { var x = gget(); x.v = VER; x.boot = 0; gset(x); }, 8000);   // a start counts as successful after 8 seconds
 
   var LOG = '[oldui]';
   function log() { try { console.log.apply(console, [LOG].concat([].slice.call(arguments))); } catch (e) {} }
@@ -20,7 +31,7 @@
     if (node.classList.contains(cls) !== !!state) node.classList.toggle(cls, !!state);
   }
 
-  /* ---------- настройки ---------- */
+  /* ---------- settings ---------- */
   function on(name, def) {
     try {
       var v = Lampa.Storage.field(name);
@@ -31,26 +42,26 @@
   function applyBodyClasses() {
     var b = document.body;
     setCls(b, 'oldui-square', on('oldui_square', true));
-    setCls(b, 'oldui-info', on('oldui_info', true));
-    setCls(b, 'oldui-logo', on('oldui_logo', true));
-    if (info) setCls(info, 'oldui-info--logo', on('oldui_logo', true));
-    last = null; schedule();
+    setCls(b, 'oldui-info', on('oldui_info', false));
+    setCls(b, 'oldui-logo', on('oldui_logo', false));
+    if (info) setCls(info, 'oldui-info--logo', on('oldui_logo', false));
+    last = null; syncObserver(); schedule();
   }
   function addSettings() {
     try {
       Lampa.SettingsApi.addComponent({
         component: 'oldui',
-        name: 'Старый дизайн',
+        name: '\u0421\u0442\u0430\u0440\u044b\u0439 \u0434\u0438\u0437\u0430\u0439\u043d',
         icon: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="3" width="16" height="18" stroke="currentColor" stroke-width="2"/></svg>'
       });
       [
-        ['oldui_square', 'Квадратные постеры', 'Прямые углы у карточек, как в старой версии'],
-        ['oldui_info', 'Название и рейтинг сверху', 'Над рядами на главной, вместо подписи под постером'],
-        ['oldui_logo', 'Логотип вместо названия', 'Если у фильма есть логотип на TMDB']
+        ['oldui_square', '\u041a\u0432\u0430\u0434\u0440\u0430\u0442\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u0435\u0440\u044b', '\u041f\u0440\u044f\u043c\u044b\u0435 \u0443\u0433\u043b\u044b \u0443 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a, \u043a\u0430\u043a \u0432 \u0441\u0442\u0430\u0440\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438'],
+        ['oldui_info', '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0438 \u0440\u0435\u0439\u0442\u0438\u043d\u0433 \u0441\u0432\u0435\u0440\u0445\u0443', '\u042d\u043a\u0441\u043f\u0435\u0440\u0438\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u043e. \u041d\u0430\u0434 \u0440\u044f\u0434\u0430\u043c\u0438 \u043d\u0430 \u0433\u043b\u0430\u0432\u043d\u043e\u0439, \u0432\u043c\u0435\u0441\u0442\u043e \u043f\u043e\u0434\u043f\u0438\u0441\u0438 \u043f\u043e\u0434 \u043f\u043e\u0441\u0442\u0435\u0440\u043e\u043c'],
+        ['oldui_logo', '\u041b\u043e\u0433\u043e\u0442\u0438\u043f \u0432\u043c\u0435\u0441\u0442\u043e \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f', '\u042d\u043a\u0441\u043f\u0435\u0440\u0438\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u043e. \u0415\u0441\u043b\u0438 \u0443 \u0444\u0438\u043b\u044c\u043c\u0430 \u0435\u0441\u0442\u044c \u043b\u043e\u0433\u043e\u0442\u0438\u043f \u043d\u0430 TMDB']
       ].forEach(function (p) {
         Lampa.SettingsApi.addParam({
           component: 'oldui',
-          param: { name: p[0], type: 'trigger', default: true },
+          param: { name: p[0], type: 'trigger', default: p[0] === 'oldui_square' },
           field: { name: p[1], description: p[2] },
           onChange: applyBodyClasses
         });
@@ -58,9 +69,9 @@
     } catch (e) { log('settings unavailable', e); }
   }
 
-  /* ---------- стили ---------- */
+  /* ---------- styles ---------- */
   var CSS = [
-    /* 1. квадратные постеры */
+    /* 1. square posters */
     'body.oldui-square .card .card__view,',
     'body.oldui-square .card .card__img,',
     'body.oldui-square .card .card__view::after,',
@@ -69,12 +80,12 @@
     'body.oldui-square .card__quality,',
     'body.oldui-square .card__type{border-radius:0 !important}',
 
-    /* 2. подписи под постерами прячем только в рядах на главной, когда включён верхний блок */
+    /* 2. hide captions under posters (home rows only, when the top block is on) */
     'body.oldui-info.oldui-main .items-line .card__title,',
     'body.oldui-info.oldui-main .items-line .card__age,',
     'body.oldui-info.oldui-main .items-line .card__vote{display:none !important}',
 
-    /* верхний блок */
+    /* top info block */
     '.oldui-info{display:none;align-items:center;gap:1.2em;margin:0 1.5em 1.2em 1.5em;padding-top:.5em;min-height:5em}',
     'body.oldui-info.oldui-main .oldui-info.oldui-info--on{display:flex}',
     '.oldui-info__rate{font-size:2.4em;font-weight:700;line-height:1;padding:.25em .45em;border-radius:.2em;background:rgba(0,0,0,.35)}',
@@ -94,8 +105,8 @@
     document.head.appendChild(st);
   }
 
-  /* ---------- данные карточки ---------- */
-  var cur = null;          // последние данные карточки из Lampa.Maker (если удалось перехватить)
+  /* ---------- card data ---------- */
+  var cur = null;          // last card data captured from Lampa.Maker (if hooked)
   var logoCache = {};      // 'movie123' -> url | ''
 
   function hookMaker() {
@@ -112,7 +123,7 @@
         return inst;
       };
       Lampa.Maker.__oldui = true;
-    } catch (e) { log('Maker hook failed (работаем только по DOM)', e); }
+    } catch (e) { log('Maker hook failed (\u0440\u0430\u0431\u043e\u0442\u0430\u0435\u043c \u0442\u043e\u043b\u044c\u043a\u043e \u043f\u043e DOM)', e); }
   }
 
   function txt(el, sel) {
@@ -151,7 +162,7 @@
     } catch (e) { logoCache[key] = ''; done('', key); }
   }
 
-  /* ---------- верхний блок ---------- */
+  /* ---------- top info block ---------- */
   var info = null, last = null, lastKey = null;
 
   function build() {
@@ -176,6 +187,7 @@
 
   function update() {
     var body = document.body;
+    if (!on('oldui_info', false)) { removeInfo(); setCls(body, 'oldui-main', false); return; }
     var main = isMain();
     setCls(body, 'oldui-main', main);
     if (!info) return;
@@ -184,7 +196,7 @@
     var line = el.closest('.items-line');
     if (!line || !line.parentNode) { setCls(info, 'oldui-info--on', false); return; }
 
-    // блок стоит первым в списке рядов
+    // the info block goes first in the list of rows
     var parent = line.parentNode;
     if (info.parentNode !== parent || parent.firstChild !== info) parent.insertBefore(info, parent.firstChild);
     setCls(info, 'oldui-info--on', true);
@@ -193,7 +205,7 @@
     last = el;
 
     var domTitle = txt(el, '.card__title');
-    var d = cur && norm(cur.title || cur.name) === norm(domTitle) ? cur : null;   // данные только если они от этой карточки
+    var d = cur && norm(cur.title || cur.name) === norm(domTitle) ? cur : null;   // use data only if it belongs to this card
 
     var title = (d && (d.title || d.name)) || domTitle;
     var orig = d && (d.original_title || d.original_name);
@@ -205,41 +217,62 @@
     rate.textContent = vote;
     setCls(rate, 'hide', !vote || vote === '0.0' || vote === '0');
     info.querySelector('.oldui-info__title').textContent = title;
-    info.querySelector('.oldui-info__sub').textContent = [orig, year].filter(Boolean).join('  •  ');
+    info.querySelector('.oldui-info__sub').textContent = [orig, year].filter(Boolean).join('  \u2022  ');
 
-    // логотип
+    // logo
     setCls(info, 'oldui-info--hasl', false);
     var img = info.querySelector('.oldui-info__logo');
     img.removeAttribute('src');
     lastKey = null;
-    if (on('oldui_logo', true) && d && d.id) {
+    if (on('oldui_logo', false) && d && d.id) {
       fetchLogo(d, function (url, key) {
-        if (last !== el || !url) return;        // фокус уже ушёл или логотипа нет
+        if (last !== el || !url) return;        // focus moved away or no logo
         img.onload = function () { if (last === el) setCls(info, 'oldui-info--hasl', true); };
         img.src = url;
       });
     }
   }
 
-  var scheduled = false;
+  var scheduled = false, errors = 0, mo = null;
+  function removeInfo() {
+    last = null;
+    if (info) { setCls(info, 'oldui-info--on', false); if (info.parentNode) info.parentNode.removeChild(info); }
+  }
   function schedule() {
     if (scheduled) return;
     scheduled = true;
-    requestAnimationFrame(function () { scheduled = false; try { update(); } catch (e) { log('update error', e); } });
+    requestAnimationFrame(function () {
+      scheduled = false;
+      try { update(); } catch (e) {
+        log('update error', e);
+        if (++errors >= 5) { log('\u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043c\u043d\u043e\u0433\u043e \u043e\u0448\u0438\u0431\u043e\u043a, \u0432\u0435\u0440\u0445\u043d\u0438\u0439 \u0431\u043b\u043e\u043a \u043e\u0442\u043a\u043b\u044e\u0447\u0451\u043d'); if (mo) { mo.disconnect(); mo = null; } removeInfo(); }
+      }
+    });
+  }
+  // observe focus only when the top block is enabled
+  function syncObserver() {
+    var need = on('oldui_info', false) || on('oldui_logo', false);
+    if (need && !mo) {
+      hookMaker();
+      mo = new MutationObserver(schedule);
+      mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    } else if (!need && mo) {
+      mo.disconnect(); mo = null; removeInfo();
+    }
   }
 
-  /* ---------- запуск ---------- */
+  /* ---------- start ---------- */
   function start() {
-    injectCss();
-    build();
-    hookMaker();
-    addSettings();
-    applyBodyClasses();
-    // фокус в Lampa — это смена класса "focus"; следим за ним, не завися от внутренних событий
-    new MutationObserver(schedule).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
-    log('ready v1.0');
+    try {
+      injectCss();
+      build();
+      addSettings();
+      applyBodyClasses();      // also starts the focus observer if needed
+      log('ready v1.1');
+    } catch (e) { log('start failed', e); }
   }
 
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
