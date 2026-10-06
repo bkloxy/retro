@@ -307,7 +307,7 @@
         try {
             var list = $('.menu .menu__list').eq(0);
             var search = list.find('.menu__item').filter(function () {
-                return $(this).data('action') === 'search' \vert{}\vert{} /Поиск\vert{}Search/i.test($(this).text());
+                return $(this).data('action') === 'search' || /Поиск|Search/i.test($(this).text());
             }).first();
             if (search.length) list.prepend(search);
         } catch (e) { }
@@ -339,7 +339,8 @@
     function initPlayerLogic() {
         Lampa.Listener.follow('player', function (e) {
             if (e.type === 'start') {
-                if (!$('.nf-skip-indicator').length) {$('.player').append('<div class="nf-skip-indicator"></div>');
+                if (!$('.nf-skip-indicator').length) {
+                    $('.player').append('<div class="nf-skip-indicator"></div>');
                 }
             }
         });
