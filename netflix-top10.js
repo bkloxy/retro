@@ -261,7 +261,13 @@
             '.nf-genres .card__view{padding-bottom:100%!important}' +
             '.nf-genres .card__img,.nf-genres .card__title,.nf-genres .card__age,.nf-genres .card__vote{display:none!important}' +
             '.nf-genre-name{position:absolute;left:0;right:0;bottom:0;padding:.8em;font-size:1.5em;font-weight:800;' +
-            'line-height:1.1;color:#fff;text-shadow:0 .1em .4em rgba(0,0,0,.6);z-index:4}';
+            'line-height:1.1;color:#fff;text-shadow:0 .1em .4em rgba(0,0,0,.6);z-index:4}' +
+            // бюджет и сборы на карточке фильма
+            '.nf-money{display:flex;flex-wrap:wrap;gap:.6em;margin:.8em 0}' +
+            '.nf-money__item{display:inline-block;padding:.35em .8em;border-radius:' + RADIUS + ';' +
+            'background:rgba(255,255,255,.12);font-weight:700;font-size:1.1em}' +
+            '.nf-money__item i{font-style:normal;font-weight:400;opacity:.65;margin-right:.3em}' +
+            '.nf-money__item--rev{background:rgba(229,9,20,.28)}';
         $('body').append('<style id="nf-style">' + css + '</style>');
     }
 
@@ -276,6 +282,39 @@
         } catch (e) { }
     }
 
+    // ===================== БЮДЖЕТ И СБОРЫ НА КАРТОЧКЕ ФИЛЬМА =====================
+    function formatMoney(num) {
+        if (!num || num <= 0) return null;
+        if (num >= 1e9) return '$' + (num / 1e9).toFixed(1).replace('.', ',') + ' млрд';
+        if (num >= 1e6) return '$' + Math.round(num / 1e6) + ' млн';
+        return '$' + num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    }
+
+    function addMoney() {
+        Lampa.Listener.follow('full', function (e) {
+            if (e.type !== 'complite') return;
+            try {
+                var movie = e.data.movie;
+                if (!movie) return;
+                var budget = formatMoney(movie.budget);
+                var revenue = formatMoney(movie.revenue);
+                if (!budget && !revenue) return; // у сериалов и новых фильмов данных обычно нет
+
+                var render = e.object.activity.render();
+                if (render.find('.nf-money').length) return;
+
+                var details = render.find('.full-start-new__details, .full-start__details').first();
+                if (!details.length) return;
+
+                var html = '<div class="nf-money">';
+                if (budget) html += '<span class="nf-money__item"><i>Бюджет</i> ' + budget + '</span>';
+                if (revenue) html += '<span class="nf-money__item nf-money__item--rev"><i>Сборы</i> ' + revenue + '</span>';
+                html += '</div>';
+                details.after(html);
+            } catch (err) { }
+        });
+    }
+
     // ===================== СТАРТ =====================
     function start() {
         if (window.netflix_style_ready) return;
@@ -285,6 +324,7 @@
         patchActivity();
         patchMain();
         patchCategory();
+        addMoney();
         menuSearchFirst();
         setTimeout(menuSearchFirst, 1500);
 
