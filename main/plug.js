@@ -1,1032 +1,371 @@
+/*
+ * Lampa plugin: "Old design" + "Netflix" (v1.4)
+ *
+ * Settings has TWO separate sections:
+ *   "\u0421\u0442\u0430\u0440\u044b\u0439 \u0434\u0438\u0437\u0430\u0439\u043d"  - square posters (on by default) and the experimental top title/rating block.
+ *   "Netflix"        - separate interface mode (off by default): dark style, square posters,
+ *                      big top area for the first row, left icon navigation panel.
+ *
+ * v1.4: fixed the white/black screen of the top block (the body class and the block element shared
+ * one class name, so the block styles hid the whole page). Added the Netflix mode.
+ *
+ * Safety: if the plugin fails to start twice in a row it disables itself; if a start fails once,
+ * the experimental parts are switched off automatically.
+ * Manual kill switch (browser console):  localStorage.setItem('oldui_off', '1')
+ */
 (function () {
-    'use strict';
+  'use strict';
+  if (window.oldui_plugin_ready) return;
+  window.oldui_plugin_ready = true;
 
-    if (window.lampa_retro_player_ready) return;
-    window.lampa_retro_player_ready = true;
+  var VER = '1.4', GK = 'oldui_guard';
+  function log() { try { console.log.apply(console, ['[oldui]'].concat([].slice.call(arguments))); } catch (e) {} }
 
-    var player = {
-        root: null,
-        timer: null,
-        dragging: false,
-        duration: 0,
-        current: 0
-    };
+  try { if (localStorage.getItem('oldui_off') === '1') { log('disabled by oldui_off'); return; } } catch (e) {}
 
-    function time(sec) {
-        sec = Math.max(0, Math.floor(sec || 0));
+  function gget() { try { return JSON.parse(localStorage.getItem(GK) || '{}'); } catch (e) { return {}; } }
+  function gset(o) { try { localStorage.setItem(GK, JSON.stringify(o)); } catch (e) {} }
+  var g = gget();
+  if (g.v !== VER) g = { v: VER, boot: 0 };
+  var prevBoot = g.boot || 0;
+  if (prevBoot >= 2) { log('safe mode: previous starts did not finish, plugin disabled'); return; }
+  g.boot = prevBoot + 1; gset(g);
+  setTimeout(function () { var x = gget(); x.v = VER; x.boot = 0; gset(x); }, 8000);   // a start counts as good after 8 s
 
-        var h = Math.floor(sec / 3600);
-        var m = Math.floor((sec % 3600) / 60);
-        var s = sec % 60;
+  function setCls(node, cls, state) {
+    if (node && node.classList.contains(cls) !== !!state) node.classList.toggle(cls, !!state);
+  }
+  function on(name, def) {
+    try {
+      var v = Lampa.Storage.field(name);
+      if (v === undefined || v === null || v === '') return def;
+      return v === true || v === 'true';
+    } catch (e) { return def; }
+  }
 
-        if (h) {
-            return h + ':' +
-                (m < 10 ? '0' : '') + m + ':' +
-                (s < 10 ? '0' : '') + s;
-        }
+  /* ---------- styles ---------- */
+  // selectors that get sharp corners (used by both "square posters" and the Netflix mode)
+  var SQUARE = [
+    '.card .card__view', '.card .card__img', '.card .card__view::after', '.card .card__view::before',
+    '.card-watched', '.card__quality', '.card__type',
+    '.full-start__poster', '.full-start-new__poster', '.full-start__img', '.full-start-new__img', '.full--poster',
+    '[class*="full-start"] [class*="poster"]', '[class*="full-start"] [class*="poster"] img',
+    '[class*="full-start"] [class*="poster"]::before', '[class*="full-start"] [class*="poster"]::after'
+  ];
+  function squareCss() {
+    var sel = [];
+    SQUARE.forEach(function (s) { sel.push('body.oldui-square ' + s); sel.push('body.nf-on ' + s); });
+    return sel.join(',') + '{border-radius:0 !important}';
+  }
 
-        return m + ':' + (s < 10 ? '0' : '') + s;
+  var CSS = [
+    squareCss(),
+
+    /* ===== Old design: top info block (body class: oldui-info / oldui-main; element class: oldui-infobox) ===== */
+    'body.oldui-info.oldui-main .items-line .card__title,',
+    'body.oldui-info.oldui-main .items-line .card__age,',
+    'body.oldui-info.oldui-main .items-line .card__vote{display:none !important}',
+    'body.oldui-info.oldui-main .items-line:first-child{margin-top:6em}',
+
+    '.oldui-infobox{position:fixed;left:0;right:0;z-index:5;display:none;align-items:center;gap:1.2em;',
+    'padding:0 1.5em;box-sizing:border-box;pointer-events:none}',
+    'body.oldui-info-show .oldui-infobox{display:flex}',
+    '.oldui-infobox__rate{font-size:2.4em;font-weight:700;line-height:1;padding:.25em .45em;border-radius:.2em;background:rgba(0,0,0,.35)}',
+    '.oldui-infobox__rate.hide{display:none}',
+    '.oldui-infobox__body{min-width:0}',
+    '.oldui-infobox__title{font-size:2.2em;font-weight:700;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.oldui-infobox__sub{font-size:1.3em;opacity:.7;margin-top:.25em}',
+
+    /* ===== Netflix mode (body classes: nf-on, nf-rail-on, nf-hero-on, nf-main, nf-hero-ok, nf-hero-show;
+       element classes: nf-rail*, nf-hero*) ===== */
+    'body.nf-on{background:#141414;color:#fff}',
+    'body.nf-on .items-line__title{font-weight:700;font-size:1.5em}',
+    'body.nf-on .card.focus .card__view{transform:scale(1.06) !important;transition:transform .15s}',
+
+    /* left navigation panel */
+    '.nf-rail{position:fixed;left:0;bottom:0;width:4.2em;z-index:6;display:none;flex-direction:column;align-items:center;',
+    'gap:1.2em;padding-top:1.5em;box-sizing:border-box;background:linear-gradient(90deg,rgba(20,20,20,.96),rgba(20,20,20,.7))}',
+    'body.nf-rail-on .nf-rail{display:flex}',
+    'body.nf-rail-on .activity__body{padding-left:4.2em;box-sizing:border-box}',
+    '.nf-rail__btn{width:100%;height:2.6em;display:flex;align-items:center;justify-content:center;cursor:pointer;',
+    'opacity:.65;border-left:.2em solid transparent;box-sizing:border-box}',
+    '.nf-rail__btn:hover,.nf-rail__btn.active{opacity:1}',
+    '.nf-rail__btn.active{border-left-color:#e50914}',
+    '.nf-rail__btn svg{width:1.7em;height:1.7em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}',
+
+    /* big top area above the first row */
+    'body.nf-hero-on.nf-main .items-line:first-child{margin-top:34vh}',
+    'body.nf-hero-ok.nf-main .items-line:first-child .card__title,',
+    'body.nf-hero-ok.nf-main .items-line:first-child .card__age,',
+    'body.nf-hero-ok.nf-main .items-line:first-child .card__vote{display:none !important}',
+    'body.nf-hero-on .oldui-infobox{display:none !important}',
+    '.nf-hero{position:fixed;left:0;right:0;height:30vh;z-index:5;display:none;flex-direction:column;justify-content:flex-end;',
+    'padding:0 2em 1.2em 2em;box-sizing:border-box;pointer-events:none;',
+    'background:linear-gradient(90deg,rgba(20,20,20,.88) 0%,rgba(20,20,20,.35) 55%,rgba(20,20,20,0) 100%)}',
+    'body.nf-rail-on .nf-hero{left:4.2em}',
+    'body.nf-hero-show .nf-hero{display:flex}',
+    '.nf-hero__title{font-size:3.2em;font-weight:800;line-height:1.1;text-shadow:0 .05em .3em rgba(0,0,0,.6);',
+    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.nf-hero__meta{display:flex;align-items:center;gap:.8em;margin-top:.5em;font-size:1.4em;opacity:.9}',
+    '.nf-hero__rate{font-weight:700;padding:.15em .5em;border-radius:.2em;background:rgba(0,0,0,.45)}',
+    '.nf-hero__rate.hide{display:none}'
+  ].join('\n');
+
+  function injectCss() {
+    var st = document.createElement('style');
+    st.id = 'oldui-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  /* ---------- settings (two separate sections) ---------- */
+  function applyBodyClasses() {
+    var b = document.body, nf = on('nf_on', false);
+    setCls(b, 'oldui-square', on('oldui_square', true));
+    setCls(b, 'oldui-info', on('oldui_info', false));
+    setCls(b, 'nf-on', nf);
+    setCls(b, 'nf-rail-on', nf && on('nf_rail', true));
+    setCls(b, 'nf-hero-on', nf && on('nf_hero', true));
+    last = null; lastNf = null;
+    positionRail();
+    syncObserver();
+    schedule();
+  }
+  function addSection(id, name, params) {
+    Lampa.SettingsApi.addComponent({
+      component: id,
+      name: name,
+      icon: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="3" width="16" height="18" stroke="currentColor" stroke-width="2"/></svg>'
+    });
+    params.forEach(function (p) {
+      Lampa.SettingsApi.addParam({
+        component: id,
+        param: { name: p[0], type: 'trigger', default: p[3] },
+        field: { name: p[1], description: p[2] },
+        onChange: applyBodyClasses
+      });
+    });
+  }
+  function addSettings() {
+    try {
+      addSection('oldui', '\u0421\u0442\u0430\u0440\u044b\u0439 \u0434\u0438\u0437\u0430\u0439\u043d', [
+        ['oldui_square', '\u041a\u0432\u0430\u0434\u0440\u0430\u0442\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u0435\u0440\u044b', '\u041f\u0440\u044f\u043c\u044b\u0435 \u0443\u0433\u043b\u044b \u0443 \u043a\u0430\u0440\u0442\u043e\u0447\u0435\u043a \u0438 \u0443 \u043f\u043e\u0441\u0442\u0435\u0440\u0430 \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435 \u0444\u0438\u043b\u044c\u043c\u0430', true],
+        ['oldui_info', '\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0438 \u0440\u0435\u0439\u0442\u0438\u043d\u0433 \u0441\u0432\u0435\u0440\u0445\u0443', '\u042d\u043a\u0441\u043f\u0435\u0440\u0438\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u043e. \u041d\u0430\u0434 \u043f\u0435\u0440\u0432\u044b\u043c \u0440\u044f\u0434\u043e\u043c \u043d\u0430 \u0433\u043b\u0430\u0432\u043d\u043e\u0439; \u0435\u0441\u043b\u0438 \u043c\u0435\u0441\u0442\u0430 \u043d\u0435\u0442, \u0431\u043b\u043e\u043a \u043d\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f', false]
+      ]);
+    } catch (e) { log('settings (old design) unavailable', e); }
+    try {
+      addSection('oldui_nf', 'Netflix', [
+        ['nf_on', '\u0420\u0435\u0436\u0438\u043c Netflix', '\u0422\u0451\u043c\u043d\u044b\u0439 \u0441\u0442\u0438\u043b\u044c, \u043a\u0432\u0430\u0434\u0440\u0430\u0442\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u0435\u0440\u044b. \u0412\u043a\u043b\u044e\u0447\u0430\u0435\u0442 \u043f\u0443\u043d\u043a\u0442\u044b \u043d\u0438\u0436\u0435', false],
+        ['nf_rail', '\u041b\u0435\u0432\u0430\u044f \u043f\u0430\u043d\u0435\u043b\u044c', '\u0423\u0437\u043a\u0430\u044f \u043f\u0430\u043d\u0435\u043b\u044c \u0441 \u0438\u043a\u043e\u043d\u043a\u0430\u043c\u0438: \u043f\u043e\u0438\u0441\u043a, \u0433\u043b\u0430\u0432\u043d\u0430\u044f, \u0440\u0435\u043b\u0438\u0437\u044b, \u0444\u0438\u043b\u044c\u043c\u044b, \u0441\u0435\u0440\u0438\u0430\u043b\u044b, \u0438\u0437\u0431\u0440\u0430\u043d\u043d\u043e\u0435', true],
+        ['nf_hero', '\u0411\u043e\u043b\u044c\u0448\u0430\u044f \u0432\u0435\u0440\u0445\u043d\u044f\u044f \u043e\u0431\u043b\u0430\u0441\u0442\u044c', '\u041a\u0440\u0443\u043f\u043d\u043e\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0438 \u0440\u0435\u0439\u0442\u0438\u043d\u0433 \u043d\u0430\u0434 \u043f\u0435\u0440\u0432\u044b\u043c \u0440\u044f\u0434\u043e\u043c \u043d\u0430 \u0433\u043b\u0430\u0432\u043d\u043e\u0439', true]
+      ]);
+    } catch (e) { log('settings (netflix) unavailable', e); }
+  }
+
+  /* ---------- shared helpers ---------- */
+  var info = null, last = null, scheduled = false, errors = 0, nfErrors = 0, mo = null;
+  var hero = null, rail = null, lastNf = null;
+
+  function txt(el, sel) { var n = el.querySelector(sel); return n ? (n.textContent || '').trim() : ''; }
+  function isMain() {
+    try {
+      var a = Lampa.Activity.active();
+      if (a && a.component) return a.component === 'main';
+    } catch (e) {}
+    return !document.querySelector('.full-start, .full-start-new');
+  }
+  function headBottom() {
+    var head = document.querySelector('.head');
+    var b = head ? Math.round(head.getBoundingClientRect().bottom) : 0;
+    return b > 0 ? b : 80;
+  }
+
+  /* ---------- old design: top info block (separate overlay, never inside Lampa containers) ---------- */
+  function buildInfo() {
+    info = document.createElement('div');
+    info.className = 'oldui-infobox';
+    info.innerHTML =
+      '<div class="oldui-infobox__rate hide"></div>' +
+      '<div class="oldui-infobox__body"><div class="oldui-infobox__title"></div><div class="oldui-infobox__sub"></div></div>';
+    document.body.appendChild(info);
+  }
+  function hideInfo() { setCls(document.body, 'oldui-info-show', false); }
+
+  function updateOld() {
+    var body = document.body;
+    if (!on('oldui_info', false)) { hideInfo(); setCls(body, 'oldui-main', false); return; }
+    var main = isMain();
+    setCls(body, 'oldui-main', main);
+    var el = main ? document.querySelector('.card.focus') : null;
+    if (!el) { hideInfo(); return; }
+    var line = el.closest('.items-line');
+    if (!line || !line.parentNode || line.parentNode.querySelector('.items-line') !== line) { hideInfo(); return; }   // first row only
+
+    // place the overlay right under the header; show it only if there is real free space above the row
+    var top = headBottom();
+    if (line.getBoundingClientRect().top - top < 70) { hideInfo(); return; }
+    if (info.style.top !== top + 'px') info.style.top = top + 'px';
+
+    if (el !== last) {
+      last = el;
+      var vote = txt(el, '.card__vote');
+      var rate = info.querySelector('.oldui-infobox__rate');
+      rate.textContent = vote;
+      setCls(rate, 'hide', !vote || vote === '0.0' || vote === '0');
+      info.querySelector('.oldui-infobox__title').textContent = txt(el, '.card__title');
+      info.querySelector('.oldui-infobox__sub').textContent = txt(el, '.card__age');
     }
+    setCls(body, 'oldui-info-show', true);
+  }
 
-    function video() {
-        try {
-            return Lampa.PlayerVideo.video();
-        } catch (e) {
-            return null;
-        }
+  /* ---------- Netflix mode ---------- */
+  var ICONS = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+    main: '<path d="M3 11l9-8 9 8v10H3z"/>',
+    relise: '<rect x="4" y="5" width="16" height="15"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+    movie: '<rect x="3" y="4" width="18" height="16"/><path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"/>',
+    tv: '<rect x="3" y="5" width="18" height="12"/><path d="M8 21h8M12 17v4"/>',
+    favorite: '<path d="M6 3h12v18l-6-4-6 4z"/>'
+  };
+  var RAIL = [
+    ['search', '\u041f\u043e\u0438\u0441\u043a'], ['main', '\u0413\u043b\u0430\u0432\u043d\u0430\u044f'], ['relise', '\u0420\u0435\u043b\u0438\u0437\u044b'],
+    ['movie', '\u0424\u0438\u043b\u044c\u043c\u044b'], ['tv', '\u0421\u0435\u0440\u0438\u0430\u043b\u044b'], ['favorite', '\u0418\u0437\u0431\u0440\u0430\u043d\u043d\u043e\u0435']
+  ];
+  // which native menu item (data-action) to press for each button; the first one that exists is used
+  var ACTIONS = { main: ['main'], relise: ['relise', 'upcoming'], movie: ['movie'], tv: ['tv'], favorite: ['favorite', 'bookmarks', 'book'] };
+
+  function noty(t) { try { Lampa.Noty.show(t); } catch (e) {} }
+  function go(key) {
+    try {
+      if (key === 'search') {
+        if (Lampa.Search && Lampa.Search.open) { Lampa.Search.open(); return; }
+        var s = document.querySelector('.open--search');
+        if (s && window.$) { window.$(s).trigger('hover:enter'); return; }
+        noty('\u041f\u043e\u0438\u0441\u043a \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'); return;
+      }
+      var $ = window.$ || window.jQuery;
+      var list = ACTIONS[key] || [];
+      for (var i = 0; i < list.length; i++) {
+        var item = $ ? $('.menu__item[data-action="' + list[i] + '"]') : [];
+        if (item.length) { item.first().trigger('hover:enter'); return; }
+      }
+      noty('\u0420\u0430\u0437\u0434\u0435\u043b \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0432 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Lampa');
+    } catch (e) { log('rail action failed', key, e); }
+  }
+  function buildRail() {
+    rail = document.createElement('div');
+    rail.className = 'nf-rail';
+    rail.innerHTML = RAIL.map(function (r) {
+      return '<div class="nf-rail__btn" data-nf="' + r[0] + '" title="' + r[1] + '"><svg viewBox="0 0 24 24">' + ICONS[r[0]] + '</svg></div>';
+    }).join('');
+    rail.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('[data-nf]') : null;
+      if (!t) return;
+      var all = rail.querySelectorAll('.nf-rail__btn');
+      for (var i = 0; i < all.length; i++) setCls(all[i], 'active', all[i] === t);
+      go(t.getAttribute('data-nf'));
+    });
+    document.body.appendChild(rail);
+  }
+  function positionRail() {
+    if (!rail) return;
+    var top = headBottom() + 'px';
+    if (rail.style.top !== top) rail.style.top = top;
+  }
+
+  function buildHero() {
+    hero = document.createElement('div');
+    hero.className = 'nf-hero';
+    hero.innerHTML =
+      '<div class="nf-hero__title"></div>' +
+      '<div class="nf-hero__meta"><span class="nf-hero__rate hide"></span><span class="nf-hero__year"></span></div>';
+    document.body.appendChild(hero);
+  }
+
+  function updateNf() {
+    var body = document.body;
+    if (!(on('nf_on', false) && on('nf_hero', true))) {
+      setCls(body, 'nf-hero-show', false); setCls(body, 'nf-hero-ok', false); setCls(body, 'nf-main', false);
+      return;
     }
-
-    function create() {
-
-        if ($('#lampa-retro-player').length) {
-            player.root = $('#lampa-retro-player');
-            return;
-        }
-
-        var html = `
-        <div id="lampa-retro-player">
-
-            <div class="retro-top">
-
-                <div class="retro-title">
-                    Воспроизведение
-                </div>
-
-                <div class="retro-close selector" tabindex="0">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/>
-                    </svg>
-                </div>
-
-            </div>
-
-            <div class="retro-center">
-
-                <div class="retro-big-play selector" tabindex="0">
-                    <svg class="retro-big-play-icon" viewBox="0 0 24 24">
-                        <path d="M8 5v14l11-7z"/>
-                    </svg>
-
-                    <svg class="retro-big-pause-icon" viewBox="0 0 24 24">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                    </svg>
-                </div>
-
-            </div>
-
-            <div class="retro-bottom">
-
-                <div class="retro-progress-line">
-
-                    <div class="retro-current">
-                        0:00
-                    </div>
-
-                    <div class="retro-progress selector">
-
-                        <div class="retro-progress-bg"></div>
-                        <div class="retro-progress-played"></div>
-                        <div class="retro-progress-thumb"></div>
-
-                    </div>
-
-                    <div class="retro-left">
-                        -0:00
-                    </div>
-
-                </div>
-
-                <div class="retro-controls">
-
-                    <div class="retro-button retro-back selector" tabindex="0">
-
-                        <svg viewBox="0 0 24 24">
-                            <path d="M11 7v4l-5-5 5-5v4c4.42 0 8 3.58 8 8s-3.58 8-8 8c-3.53 0-6.53-2.29-7.59-5.5l1.9-.63C6.05 17.62 8.31 19 11 19c3.31 0 6-2.69 6-6s-2.69-6-6-6z"/>
-                        </svg>
-
-                        <span>10</span>
-
-                    </div>
-
-                    <div class="retro-play selector" tabindex="0">
-
-                        <svg class="retro-play-icon" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-
-                        <svg class="retro-pause-icon" viewBox="0 0 24 24">
-                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                        </svg>
-
-                    </div>
-
-                    <div class="retro-button retro-forward selector" tabindex="0">
-
-                        <svg viewBox="0 0 24 24">
-                            <path d="M13 7v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8c3.53 0 6.53-2.29 7.59-5.5l-1.9-.63C17.95 17.62 15.69 19 13 19c-3.31 0-6-2.69-6-6s2.69-6 6-6z"/>
-                        </svg>
-
-                        <span>10</span>
-
-                    </div>
-
-                    <div class="retro-space"></div>
-
-                    <div class="retro-option retro-source selector" tabindex="0">
-                        Источник
-                    </div>
-
-                    <div class="retro-option retro-size selector" tabindex="0">
-                        Размер
-                    </div>
-
-                </div>
-
-            </div>
-
-            <div class="retro-skip"></div>
-
-        </div>
-        `;
-
-        $('body').append(html);
-
-        player.root = $('#lampa-retro-player');
-
-        var css = `
-        #lampa-retro-player {
-            position: fixed;
-            left: 0;
-            top: 0;
-            right: 0;
-            bottom: 0;
-
-            z-index: 999999;
-
-            color: #fff;
-
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                Roboto,
-                sans-serif;
-
-            pointer-events: none;
-
-            opacity: 0;
-
-            transition: opacity .25s ease;
-        }
-
-        #lampa-retro-player.visible {
-            opacity: 1;
-        }
-
-        #lampa-retro-player .retro-top,
-        #lampa-retro-player .retro-center,
-        #lampa-retro-player .retro-bottom,
-        #lampa-retro-player .retro-skip {
-            pointer-events: none;
-        }
-
-        #lampa-retro-player .selector {
-            pointer-events: auto;
-        }
-
-        .retro-top {
-            position: absolute;
-
-            left: 0;
-            right: 0;
-            top: 0;
-
-            padding: 28px 40px 80px;
-
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-
-            background:
-                linear-gradient(
-                    to bottom,
-                    rgba(0,0,0,.75),
-                    rgba(0,0,0,.35),
-                    transparent
-                );
-        }
-
-        .retro-title {
-            font-size: 25px;
-            font-weight: 600;
-
-            max-width: 75%;
-
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-
-            text-shadow:
-                0 2px 10px rgba(0,0,0,.9);
-        }
-
-        .retro-close {
-            width: 48px;
-            height: 48px;
-
-            border-radius: 50%;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            background: rgba(0,0,0,.45);
-
-            cursor: pointer;
-        }
-
-        .retro-close svg {
-            width: 26px;
-            height: 26px;
-
-            fill: #fff;
-        }
-
-        .retro-center {
-            position: absolute;
-
-            left: 50%;
-            top: 50%;
-
-            transform: translate(-50%, -50%);
-        }
-
-        .retro-big-play {
-            width: 82px;
-            height: 82px;
-
-            border-radius: 50%;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            background: rgba(0,0,0,.45);
-
-            border: 2px solid rgba(255,255,255,.9);
-
-            cursor: pointer;
-        }
-
-        .retro-big-play svg {
-            width: 35px;
-            height: 35px;
-
-            fill: #fff;
-        }
-
-        .retro-big-play-icon {
-            display: block;
-        }
-
-        .retro-big-pause-icon {
-            display: none;
-        }
-
-        .retro-bottom {
-            position: absolute;
-
-            left: 0;
-            right: 0;
-            bottom: 0;
-
-            padding:
-                0 40px 32px;
-
-            background:
-                linear-gradient(
-                    to top,
-                    rgba(0,0,0,.9),
-                    rgba(0,0,0,.55),
-                    transparent
-                );
-        }
-
-        .retro-progress-line {
-            display: flex;
-
-            align-items: center;
-
-            gap: 15px;
-
-            margin-bottom: 20px;
-        }
-
-        .retro-current,
-        .retro-left {
-            min-width: 55px;
-
-            text-align: center;
-
-            font-size: 16px;
-
-            font-weight: 500;
-        }
-
-        .retro-progress {
-            position: relative;
-
-            flex: 1;
-
-            height: 7px;
-
-            cursor: pointer;
-        }
-
-        .retro-progress-bg {
-            position: absolute;
-
-            left: 0;
-            right: 0;
-            top: 0;
-            bottom: 0;
-
-            border-radius: 10px;
-
-            background: rgba(255,255,255,.3);
-        }
-
-        .retro-progress-played {
-            position: absolute;
-
-            left: 0;
-            top: 0;
-            bottom: 0;
-
-            width: 0%;
-
-            border-radius: 10px;
-
-            background: #e50914;
-        }
-
-        .retro-progress-thumb {
-            position: absolute;
-
-            left: 0%;
-
-            top: 50%;
-
-            width: 15px;
-            height: 15px;
-
-            border-radius: 50%;
-
-            background: #fff;
-
-            transform:
-                translate(-50%, -50%);
-
-            box-shadow:
-                0 1px 8px rgba(0,0,0,.8);
-        }
-
-        .retro-controls {
-            display: flex;
-
-            align-items: center;
-
-            gap: 15px;
-        }
-
-        .retro-button {
-            position: relative;
-
-            width: 52px;
-            height: 52px;
-
-            border-radius: 50%;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            background:
-                rgba(255,255,255,.13);
-
-            cursor: pointer;
-        }
-
-        .retro-button svg {
-            width: 28px;
-            height: 28px;
-
-            fill: #fff;
-        }
-
-        .retro-button span {
-            position: absolute;
-
-            bottom: 7px;
-            right: 7px;
-
-            font-size: 9px;
-
-            font-weight: 700;
-        }
-
-        .retro-play {
-            width: 60px;
-            height: 60px;
-
-            border-radius: 50%;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            background: #fff;
-
-            cursor: pointer;
-        }
-
-        .retro-play svg {
-            width: 28px;
-            height: 28px;
-
-            fill: #000;
-        }
-
-        .retro-pause-icon {
-            display: none;
-        }
-
-        .retro-space {
-            flex: 1;
-        }
-
-        .retro-option {
-            height: 42px;
-
-            padding: 0 17px;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            border-radius: 22px;
-
-            background:
-                rgba(255,255,255,.13);
-
-            font-size: 15px;
-
-            cursor: pointer;
-        }
-
-        .retro-skip {
-            position: absolute;
-
-            left: 50%;
-            top: 50%;
-
-            transform:
-                translate(-50%, -50%);
-
-            width: 130px;
-            height: 130px;
-
-            border-radius: 50%;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            background:
-                rgba(0,0,0,.65);
-
-            font-size: 25px;
-            font-weight: 600;
-
-            opacity: 0;
-
-            transition:
-                opacity .2s,
-                transform .2s;
-        }
-
-        .retro-skip.show {
-            opacity: 1;
-
-            transform:
-                translate(-50%, -50%)
-                scale(1);
-        }
-
-        #lampa-retro-player.hidden-ui .retro-top,
-        #lampa-retro-player.hidden-ui .retro-center,
-        #lampa-retro-player.hidden-ui .retro-bottom {
-            opacity: 0;
-
-            transition: opacity .25s;
-        }
-
-        #lampa-retro-player .retro-close:hover,
-        #lampa-retro-player .retro-button:hover,
-        #lampa-retro-player .retro-option:hover {
-            background:
-                rgba(255,255,255,.25);
-        }
-
-        `;
-
-        $('head').append(
-            '<style id="lampa-retro-player-style">' +
-            css +
-            '</style>'
-        );
+    var main = isMain();
+    setCls(body, 'nf-main', main);
+    var el = main ? document.querySelector('.card.focus') : null;
+    if (!el) { setCls(body, 'nf-hero-show', false); return; }
+    var line = el.closest('.items-line');
+    var first = line && line.parentNode ? line.parentNode.querySelector('.items-line') : null;   // first row of this screen
+    var top = headBottom();
+    // enough free space above the first row? (otherwise the big area stays hidden and captions are kept)
+    var ok = !!first && (first.getBoundingClientRect().top - top >= Math.round(window.innerHeight * 0.26));
+    setCls(body, 'nf-hero-ok', ok);
+    if (!ok || first !== line) { setCls(body, 'nf-hero-show', false); return; }
+
+    if (hero.style.top !== top + 'px') hero.style.top = top + 'px';
+    if (el !== lastNf) {
+      lastNf = el;
+      var vote = txt(el, '.card__vote');
+      var rate = hero.querySelector('.nf-hero__rate');
+      rate.textContent = vote;
+      setCls(rate, 'hide', !vote || vote === '0.0' || vote === '0');
+      hero.querySelector('.nf-hero__title').textContent = txt(el, '.card__title');
+      hero.querySelector('.nf-hero__year').textContent = txt(el, '.card__age');
     }
+    setCls(body, 'nf-hero-show', true);
+  }
 
-    function show() {
-
-        if (!player.root) return;
-
-        player.root
-            .addClass('visible')
-            .removeClass('hidden-ui');
-
-        clearTimeout(player.timer);
-
-        player.timer = setTimeout(function () {
-            hide();
-        }, 3500);
+  /* ---------- scheduling ---------- */
+  function update() {
+    try { updateOld(); } catch (e) {
+      log('update error (old design)', e);
+      if (++errors >= 5) { log('too many errors, top block disabled'); hideInfo(); try { Lampa.Storage.set('oldui_info', false); } catch (x) {} }
     }
-
-    function hide() {
-
-        if (player.dragging) return;
-
-        if (!player.root) return;
-
-        player.root.addClass('hidden-ui');
+    try { updateNf(); } catch (e) {
+      log('update error (netflix)', e);
+      if (++nfErrors >= 5) {
+        log('too many errors, big top area disabled');
+        var b = document.body; setCls(b, 'nf-hero-show', false); setCls(b, 'nf-hero-ok', false); setCls(b, 'nf-hero-on', false);
+        try { Lampa.Storage.set('nf_hero', false); } catch (x) {}
+      }
     }
-
-    function update() {
-
-        var v = video();
-
-        if (!v || !player.root) return;
-
-        player.current = v.currentTime || 0;
-        player.duration = v.duration || 0;
-
-        if (!player.duration || !isFinite(player.duration)) return;
-
-        var percent =
-            (player.current / player.duration) * 100;
-
-        percent = Math.max(
-            0,
-            Math.min(100, percent)
-        );
-
-        player.root
-            .find('.retro-progress-played')
-            .css('width', percent + '%');
-
-        player.root
-            .find('.retro-progress-thumb')
-            .css('left', percent + '%');
-
-        player.root
-            .find('.retro-current')
-            .text(time(player.current));
-
-        player.root
-            .find('.retro-left')
-            .text(
-                '-' + time(
-                    Math.max(
-                        0,
-                        player.duration - player.current
-                    )
-                )
-            );
+  }
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(function () {
+      scheduled = false;
+      update();
+    });
+  }
+  // observe focus changes only while a part that needs it is enabled
+  function syncObserver() {
+    var need = on('oldui_info', false) || (on('nf_on', false) && on('nf_hero', true));
+    if (need && !mo) {
+      mo = new MutationObserver(schedule);
+      mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    } else if (!need && mo) {
+      mo.disconnect(); mo = null; hideInfo();
+      setCls(document.body, 'nf-hero-show', false);
     }
-
-    function setPlaying(state) {
-
-        if (!player.root) return;
-
-        if (state) {
-
-            player.root
-                .find('.retro-play-icon')
-                .hide();
-
-            player.root
-                .find('.retro-pause-icon')
-                .show();
-
-            player.root
-                .find('.retro-big-play-icon')
-                .hide();
-
-            player.root
-                .find('.retro-big-pause-icon')
-                .show();
-
-        } else {
-
-            player.root
-                .find('.retro-play-icon')
-                .show();
-
-            player.root
-                .find('.retro-pause-icon')
-                .hide();
-
-            player.root
-                .find('.retro-big-play-icon')
-                .show();
-
-            player.root
-                .find('.retro-big-pause-icon')
-                .hide();
-        }
-    }
-
-    function togglePlay() {
-
-        var v = video();
-
-        if (!v) return;
-
-        if (v.paused) {
-            v.play();
-        } else {
-            v.pause();
-        }
-
-        show();
-    }
-
-    function skip(seconds) {
-
-        var v = video();
-
-        if (!v) return;
-
-        var duration = v.duration || 999999;
-
-        v.currentTime =
-            Math.max(
-                0,
-                Math.min(
-                    duration,
-                    v.currentTime + seconds
-                )
-            );
-
-        var indicator =
-            player.root.find('.retro-skip');
-
-        indicator
-            .text(
-                seconds > 0
-                    ? '+10 секунд'
-                    : '-10 секунд'
-            )
-            .addClass('show');
-
-        clearTimeout(window.retroSkipTimer);
-
-        window.retroSkipTimer =
-            setTimeout(function () {
-
-                indicator.removeClass('show');
-
-            }, 700);
-
-        show();
-    }
-
-    function seek(percent) {
-
-        var v = video();
-
-        if (!v || !v.duration) return;
-
-        v.currentTime =
-            (percent / 100) * v.duration;
-
-        update();
-    }
-
-    function bind() {
-
-        var root = player.root;
-
-        root.on(
-            'click',
-            '.retro-play, .retro-big-play',
-            togglePlay
-        );
-
-        root.on(
-            'click',
-            '.retro-back',
-            function () {
-                skip(-10);
-            }
-        );
-
-        root.on(
-            'click',
-            '.retro-forward',
-            function () {
-                skip(10);
-            }
-        );
-
-        root.on(
-            'click',
-            '.retro-close',
-            function () {
-
-                try {
-                    Lampa.Player.close();
-                } catch (e) {}
-
-            }
-        );
-
-        root.on(
-            'click',
-            '.retro-source',
-            function () {
-
-                try {
-
-                    $('.player-panel__source')
-                        .trigger('click');
-
-                } catch (e) {}
-
-                show();
-            }
-        );
-
-        root.on(
-            'click',
-            '.retro-size',
-            function () {
-
-                try {
-
-                    $('.player-panel__size')
-                        .trigger('click');
-
-                } catch (e) {}
-
-                show();
-            }
-        );
-
-        var progress =
-            root.find('.retro-progress');
-
-        progress.on(
-            'mousedown touchstart',
-            function () {
-
-                player.dragging = true;
-
-                show();
-            }
-        );
-
-        $(document).on(
-            'mousemove.retroplayer touchmove.retroplayer',
-            function (e) {
-
-                if (!player.dragging) return;
-
-                var rect =
-                    progress[0]
-                        .getBoundingClientRect();
-
-                var original =
-                    e.originalEvent;
-
-                var x;
-
-                if (
-                    original &&
-                    original.touches &&
-                    original.touches.length
-                ) {
-                    x =
-                        original.touches[0].clientX;
-                } else {
-                    x = e.clientX;
-                }
-
-                var percent =
-                    ((x - rect.left) / rect.width) * 100;
-
-                percent =
-                    Math.max(
-                        0,
-                        Math.min(100, percent)
-                    );
-
-                seek(percent);
-            }
-        );
-
-        $(document).on(
-            'mouseup.retroplayer touchend.retroplayer',
-            function () {
-
-                if (!player.dragging) return;
-
-                player.dragging = false;
-
-                show();
-            }
-        );
-
-        progress.on(
-            'click',
-            function (e) {
-
-                var rect =
-                    this.getBoundingClientRect();
-
-                var percent =
-                    ((e.clientX - rect.left) /
-                    rect.width) * 100;
-
-                seek(percent);
-
-                show();
-            }
-        );
-
-        root.on(
-            'mousemove touchstart click',
-            function () {
-                show();
-            }
-        );
-
-        $(window).on(
-            'keydown.retroplayer',
-            function (e) {
-
-                if (!Lampa.Player.opened) return;
-
-                if (e.keyCode === 37) {
-                    e.preventDefault();
-                    skip(-10);
-                    return;
-                }
-
-                if (e.keyCode === 39) {
-                    e.preventDefault();
-                    skip(10);
-                    return;
-                }
-
-                if (
-                    e.keyCode === 32 ||
-                    e.keyCode === 13
-                ) {
-                    e.preventDefault();
-                    togglePlay();
-                    return;
-                }
-
-                if (e.keyCode === 27) {
-
-                    e.preventDefault();
-
-                    try {
-                        Lampa.Player.close();
-                    } catch (err) {}
-
-                }
-
-                show();
-            }
-        );
-    }
-
-    function start() {
-
-        create();
-        bind();
-
-        Lampa.Listener.follow(
-            'player',
-            function (e) {
-
-                if (e.type === 'start') {
-
-                    var title =
-                        (e.data && e.data.title) ||
-                        (
-                            e.object &&
-                            e.object.movie &&
-                            (
-                                e.object.movie.title ||
-                                e.object.movie.name
-                            )
-                        ) ||
-                        'Воспроизведение';
-
-                    player.root
-                        .find('.retro-title')
-                        .text(title);
-
-                    player.root
-                        .addClass('visible')
-                        .removeClass('hidden-ui');
-
-                    show();
-
-                    setTimeout(function () {
-
-                        var v = video();
-
-                        if (v) {
-                            setPlaying(!v.paused);
-                            update();
-                        }
-
-                    }, 100);
-                }
-
-                if (
-                    e.type === 'destroy' ||
-                    e.type === 'close'
-                ) {
-
-                    player.root
-                        .removeClass('visible');
-
-                    clearTimeout(player.timer);
-                }
-            }
-        );
-
-        Lampa.PlayerVideo.listener.follow(
-            'timeupdate',
-            function () {
-                update();
-            }
-        );
-
-        Lampa.PlayerVideo.listener.follow(
-            'play',
-            function () {
-                setPlaying(true);
-            }
-        );
-
-        Lampa.PlayerVideo.listener.follow(
-            'pause',
-            function () {
-                setPlaying(false);
-                show();
-            }
-        );
-
-        Lampa.PlayerVideo.listener.follow(
-            'ended',
-            function () {
-                setPlaying(false);
-                show();
-            }
-        );
-    }
-
-    Lampa.Listener.follow(
-        'app',
-        function (e) {
-
-            if (e.type === 'ready') {
-
-                setTimeout(
-                    start,
-                    500
-                );
-
-            }
-
-        }
-    );
-
+  }
+
+  /* ---------- start ---------- */
+  function start() {
+    try {
+      // the previous start never finished: switch the experimental parts off
+      if (prevBoot >= 1) {
+        try { Lampa.Storage.set('oldui_info', false); Lampa.Storage.set('nf_on', false); } catch (e) {}
+      }
+      injectCss();
+      buildInfo();
+      buildHero();
+      buildRail();
+      addSettings();
+      applyBodyClasses();
+      window.addEventListener('resize', function () { positionRail(); schedule(); });
+      log('ready v' + VER);
+    } catch (e) { log('start failed', e); }
+  }
+
+  if (window.appready) start();
+  else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-    
