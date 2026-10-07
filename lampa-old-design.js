@@ -1,5 +1,5 @@
 /*
- * Lampa plugin: "Old design" + "Netflix" (v1.4)
+ * Lampa plugin: "Old design" + "Netflix" (v1.3)
  *
  * Settings has TWO separate sections:
  *   "\u0421\u0442\u0430\u0440\u044b\u0439 \u0434\u0438\u0437\u0430\u0439\u043d"  - square posters (on by default) and the experimental top title/rating block.
