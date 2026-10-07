@@ -1,456 +1,824 @@
 (function () {
     'use strict';
 
-    if (window.nf_clean_player_ready) return;
-    window.nf_clean_player_ready = true;
+    if (window.retro_player_plugin_ready) return;
+    window.retro_player_plugin_ready = true;
 
-    // ===================== ПОЛНОЦЕННЫЙ ЧИСТЫЙ ПЛЕЕР =====================
-    var customPlayer = {
-        root: null,
-        hideTimer: null,
-        isVisible: true,
-        isDragging: false,
-        title: '',
-        duration: 0,
-        current: 0
-    };
+    var STORAGE_KEY = 'retro_player_mode';
+    var COMPONENT = 'retro_player_settings';
+    var originalPlay = null;
+    var root = null;
+    var video = null;
+    var hideTimer = null;
+    var hls = null;
 
-    function formatTime(sec) {
-        sec = Math.max(0, Math.floor(sec || 0));
-        var h = Math.floor(sec / 3600);
-        var m = Math.floor((sec % 3600) / 60);
-        var s = sec % 60;
-        if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-        return m + ':' + (s < 10 ? '0' : '') + s;
+    function getMode() {
+        try {
+            return Lampa.Storage.get(STORAGE_KEY, 'standard') || 'standard';
+        } catch (e) {
+            return 'standard';
+        }
     }
 
-    function createCustomPlayerUI() {
-        if ($('#nf-custom-player').length) return;
+    function addSettings() {
+        if (!Lampa.SettingsApi) return;
 
-        var html = `
-        <div id="nf-custom-player" class="nf-player">
-            <div class="nf-top">
-                <div class="nf-title"></div>
-                <div class="nf-close" tabindex="0">✕</div>
-            </div>
+        Lampa.SettingsApi.addComponent({
+            component: COMPONENT,
+            name: 'Новый плеер',
+            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M10 9l5 3-5 3V9z" fill="currentColor"/></svg>'
+        });
 
-            <div class="nf-center">
-                <div class="nf-play-big" tabindex="0">
-                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                </div>
-            </div>
+        Lampa.SettingsApi.addParam({
+            component: COMPONENT,
+            param: {
+                name: STORAGE_KEY,
+                type: 'select',
+                values: {
+                    standard: 'Стандартный',
+                    retro: 'Lampa Retro'
+                },
+                default: 'standard'
+            },
+            field: {
+                name: 'Плеер',
+                description: 'Выберите плеер. После изменения перезапустите Lampa.'
+            },
+            onChange: function () {
+                try {
+                    if (Lampa.Noty) {
+                        Lampa.Noty.show('Настройка сохранена. Перезапустите Lampa.');
+                    }
+                } catch (e) {}
+            }
+        });
+    }
 
-            <div class="nf-bottom">
-                <div class="nf-progress-wrap">
-                    <div class="nf-time-current">0:00</div>
-                    <div class="nf-progress">
-                        <div class="nf-progress-bg"></div>
-                        <div class="nf-progress-played"></div>
-                        <div class="nf-progress-thumb"></div>
-                    </div>
-                    <div class="nf-time-left">-0:00</div>
-                </div>
-
-                <div class="nf-controls">
-                    <div class="nf-btn nf-skip-back" tabindex="0">
-                        <svg viewBox="0 0 24 24"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
-                        <span>10</span>
-                    </div>
-
-                    <div class="nf-btn nf-play" tabindex="0">
-                        <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                        <svg class="icon-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                    </div>
-
-                    <div class="nf-btn nf-skip-fwd" tabindex="0">
-                        <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg>
-                        <span>10</span>
-                    </div>
-
-                    <div class="nf-spacer"></div>
-
-                    <div class="nf-btn nf-source" tabindex="0">Источник</div>
-                    <div class="nf-btn nf-size" tabindex="0">Размер</div>
-                </div>
-            </div>
-
-            <div class="nf-skip-indicator"></div>
-        </div>`;
-
-        $('body').append(html);
-        customPlayer.root = $('#nf-custom-player');
+    function ensureStyle() {
+        if ($('#retro-player-style').length) return;
 
         var css = `
-        #nf-custom-player {
-            position: fixed; inset: 0; z-index: 99999;
-            background: transparent;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            opacity: 0;
-            transition: opacity .25s ease;
-            pointer-events: none;
-        }
-        #nf-custom-player.visible {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        #nf-custom-player.hidden-ui .nf-top,
-        #nf-custom-player.hidden-ui .nf-bottom,
-        #nf-custom-player.hidden-ui .nf-center {
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity .3s;
+#retro-player-root {
+    position: fixed;
+    inset: 0;
+    z-index: 9999999;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: none;
+    overflow: hidden;
+}
+
+#retro-player-root.retro-open {
+    display: block;
+}
+
+#retro-player-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+
+.retro-gradient-top,
+.retro-gradient-bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    transition: opacity .25s;
+}
+
+.retro-gradient-top {
+    top: 0;
+    height: 30%;
+    background: linear-gradient(to bottom, rgba(0,0,0,.78), transparent);
+}
+
+.retro-gradient-bottom {
+    bottom: 0;
+    height: 42%;
+    background: linear-gradient(to top, rgba(0,0,0,.9), transparent);
+}
+
+.retro-ui {
+    position: absolute;
+    inset: 0;
+    transition: opacity .25s;
+}
+
+.retro-ui.retro-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.retro-top {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    padding: 28px 42px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+}
+
+.retro-back {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,.13);
+    font-size: 29px;
+}
+
+.retro-title {
+    font-size: 25px;
+    font-weight: 600;
+    max-width: 75%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 2px 8px #000;
+}
+
+.retro-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.retro-main-play {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.9);
+    background: rgba(0,0,0,.48);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 34px;
+    padding-left: 4px;
+}
+
+.retro-bottom {
+    position: absolute;
+    left: 42px;
+    right: 42px;
+    bottom: 30px;
+}
+
+.retro-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 16px;
+    margin-bottom: 9px;
+    text-shadow: 0 1px 4px #000;
+}
+
+.retro-progress {
+    position: relative;
+    height: 5px;
+    border-radius: 8px;
+    background: rgba(255,255,255,.35);
+    margin-bottom: 20px;
+}
+
+.retro-played {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    background: #e50914;
+    border-radius: 8px;
+}
+
+.retro-thumb {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 1px 5px #000;
+}
+
+.retro-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.retro-btn {
+    min-width: 48px;
+    height: 46px;
+    padding: 0 17px;
+    border-radius: 24px;
+    border: 0;
+    background: rgba(255,255,255,.13);
+    color: #fff;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.retro-play-small {
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    padding: 0;
+    background: #fff;
+    color: #111;
+    font-size: 23px;
+}
+
+.retro-spacer {
+    flex: 1;
+}
+
+.retro-info {
+    position: absolute;
+    left: 50%;
+    bottom: 128px;
+    transform: translateX(-50%);
+    padding: 10px 18px;
+    border-radius: 8px;
+    background: rgba(0,0,0,.7);
+    font-size: 18px;
+    opacity: 0;
+    transition: opacity .2s;
+}
+
+.retro-info.show {
+    opacity: 1;
+}
+
+@media(max-width:700px) {
+    .retro-top {
+        padding: 18px 20px;
+    }
+
+    .retro-bottom {
+        left: 20px;
+        right: 20px;
+        bottom: 18px;
+    }
+
+    .retro-title {
+        font-size: 18px;
+    }
+}
+`;
+
+        $('head').append(
+            '<style id="retro-player-style">' + css + '</style>'
+        );
+    }
+
+    function createUI() {
+        if ($('#retro-player-root').length) return;
+
+        var html = `
+<div id="retro-player-root">
+
+    <video id="retro-player-video" playsinline></video>
+
+    <div class="retro-gradient-top"></div>
+    <div class="retro-gradient-bottom"></div>
+
+    <div class="retro-ui">
+
+        <div class="retro-top">
+            <div class="retro-back selector" tabindex="0">‹</div>
+            <div class="retro-title">Lampa Retro</div>
+        </div>
+
+        <div class="retro-center">
+            <div class="retro-main-play selector" tabindex="0">▶</div>
+        </div>
+
+        <div class="retro-info"></div>
+
+        <div class="retro-bottom">
+
+            <div class="retro-times">
+                <span class="retro-current">0:00</span>
+                <span class="retro-left">-0:00</span>
+            </div>
+
+            <div class="retro-progress selector" tabindex="0">
+                <div class="retro-played"></div>
+                <div class="retro-thumb"></div>
+            </div>
+
+            <div class="retro-controls">
+
+                <div class="retro-btn retro-skip-back selector" tabindex="0">
+                    ↶ 10
+                </div>
+
+                <div class="retro-btn retro-play-small selector" tabindex="0">
+                    ▶
+                </div>
+
+                <div class="retro-btn retro-skip-forward selector" tabindex="0">
+                    10 ↷
+                </div>
+
+                <div class="retro-spacer"></div>
+
+                <div class="retro-btn retro-source selector" tabindex="0">
+                    Источник
+                </div>
+
+                <div class="retro-btn retro-quality selector" tabindex="0">
+                    Размер
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>`;
+
+        $('body').append(html);
+
+        root = $('#retro-player-root');
+        video = document.getElementById('retro-player-video');
+
+        root.on('click', '.retro-main-play,.retro-play-small', togglePlay);
+
+        root.on('click', '.retro-skip-back', function () {
+            seek(-10);
+        });
+
+        root.on('click', '.retro-skip-forward', function () {
+            seek(10);
+        });
+
+        root.on('click', '.retro-back', close);
+
+        root.on('click', '.retro-source', function () {
+            notify('Выбор источника будет добавлен следующим этапом');
+        });
+
+        root.on('click', '.retro-quality', function () {
+            notify('Выбор качества будет добавлен следующим этапом');
+        });
+
+        root.on('click', '.retro-progress', function (e) {
+
+            var rect = this.getBoundingClientRect();
+
+            var p = Math.max(
+                0,
+                Math.min(
+                    1,
+                    (e.clientX - rect.left) / rect.width
+                )
+            );
+
+            if (video && isFinite(video.duration)) {
+                video.currentTime = p * video.duration;
+            }
+
+            showUI();
+        });
+
+        video.addEventListener('timeupdate', update);
+        video.addEventListener('durationchange', update);
+        video.addEventListener('play', updateButtons);
+        video.addEventListener('pause', updateButtons);
+
+        video.addEventListener('ended', function () {
+            updateButtons();
+            showUI();
+        });
+
+        $(window).on('keydown.retroplayer', keydown);
+
+        root.on(
+            'mousemove touchstart click',
+            showUI
+        );
+    }
+
+    function format(sec) {
+
+        sec = Math.max(
+            0,
+            Math.floor(sec || 0)
+        );
+
+        var h = Math.floor(sec / 3600);
+
+        var m = Math.floor(
+            (sec % 3600) / 60
+        );
+
+        var s = sec % 60;
+
+        if (h) {
+            return h + ':' +
+                String(m).padStart(2, '0') +
+                ':' +
+                String(s).padStart(2, '0');
         }
 
-        .nf-top {
-            position: absolute; top: 0; left: 0; right: 0;
-            padding: 2em 2.5em;
-            background: linear-gradient(to bottom, rgba(0,0,0,.7), transparent);
-            display: flex; align-items: center; justify-content: space-between;
-        }
-        .nf-title {
-            font-size: 1.7em; font-weight: 600;
-            text-shadow: 0 2px 10px rgba(0,0,0,.8);
-            max-width: 80%;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .nf-close {
-            width: 2.6em; height: 2.6em; border-radius: 50%;
-            background: rgba(255,255,255,.12);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.3em; cursor: pointer;
-            transition: all .2s;
-        }
-        .nf-close:hover, .nf-close.focus {
-            background: rgba(255,255,255,.25);
-            transform: scale(1.1);
-        }
+        return m + ':' +
+            String(s).padStart(2, '0');
+    }
 
-        .nf-center {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        .nf-play-big {
-            width: 5.2em; height: 5.2em; border-radius: 50%;
-            background: rgba(0,0,0,.5);
-            border: 2.5px solid rgba(255,255,255,.85);
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer;
-            transition: all .2s;
-        }
-        .nf-play-big:hover, .nf-play-big.focus {
-            transform: scale(1.12);
-            background: rgba(229,9,20,.75);
-            border-color: #fff;
-        }
-        .nf-play-big svg {
-            width: 2.1em; height: 2.1em; fill: #fff;
-            margin-left: 0.18em;
-        }
+    function update() {
 
-        .nf-bottom {
-            position: absolute; bottom: 0; left: 0; right: 0;
-            padding: 0 2.5em 2.2em;
-            background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.4) 60%, transparent);
-        }
+        if (!video || !root) return;
 
-        .nf-progress-wrap {
-            display: flex; align-items: center; gap: 1.1em;
-            margin-bottom: 1.4em;
-        }
-        .nf-time-current, .nf-time-left {
-            font-size: 1.15em; font-weight: 500;
-            min-width: 3.8em; text-align: center;
-            opacity: 0.9;
-        }
-        .nf-progress {
-            flex: 1; height: 0.38em; position: relative;
-            cursor: pointer; border-radius: 4px;
-        }
-        .nf-progress-bg {
-            position: absolute; inset: 0;
-            background: rgba(255,255,255,.22);
-            border-radius: 4px;
-        }
-        .nf-progress-played {
-            position: absolute; left: 0; top: 0; bottom: 0;
-            background: #e50914;
-            border-radius: 4px; width: 0%;
-            transition: width .1s linear;
-        }
-        .nf-progress-thumb {
-            position: absolute; top: 50%;
-            width: 1em; height: 1em;
-            background: #fff; border-radius: 50%;
-            transform: translate(-50%, -50%);
-            box-shadow: 0 0 8px rgba(0,0,0,.5);
-            left: 0%;
-            opacity: 0;
-            transition: opacity .2s;
-        }
-        .nf-progress:hover .nf-progress-thumb,
-        .nf-progress.dragging .nf-progress-thumb {
-            opacity: 1;
-        }
+        var duration =
+            isFinite(video.duration)
+                ? video.duration
+                : 0;
 
-        .nf-controls {
-            display: flex; align-items: center; gap: 1.3em;
-        }
-        .nf-btn {
-            height: 2.7em;
-            min-width: 2.7em;
-            padding: 0 1.1em;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 2em;
-            background: rgba(255,255,255,.12);
-            cursor: pointer;
-            transition: all .2s;
-            font-size: 1.05em;
-            font-weight: 500;
-            position: relative;
-            gap: 0.4em;
-        }
-        .nf-btn:hover, .nf-btn.focus {
-            background: rgba(255,255,255,.25);
-            transform: scale(1.06);
-        }
-        .nf-btn svg {
-            width: 1.35em; height: 1.35em; fill: #fff;
-        }
-        .nf-skip-back span, .nf-skip-fwd span {
-            position: absolute;
-            font-size: 0.68em;
-            font-weight: 700;
-            bottom: 0.2em;
-            right: 0.35em;
-        }
-        .nf-play {
-            width: 3.3em; height: 3.3em;
-            min-width: 3.3em;
-            background: #fff;
-            border-radius: 50%;
-            padding: 0;
-        }
-        .nf-play svg { fill: #000; width: 1.55em; height: 1.55em; }
-        .nf-play .icon-play { margin-left: 0.12em; }
-        .nf-spacer { flex: 1; }
+        var current =
+            video.currentTime || 0;
 
-        .nf-skip-indicator {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%) scale(0.85);
-            font-size: 3em; font-weight: 700;
-            background: rgba(0,0,0,.6);
-            width: 2.6em; height: 2.6em;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            opacity: 0;
-            transition: all .2s;
-            pointer-events: none;
-        }
-        .nf-skip-indicator.show {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
-        }
+        var p =
+            duration
+                ? current / duration
+                : 0;
 
-        /* Полностью скрываем родной плеер Lampa */
-        .player-panel,
-        .player__footer,
-        .player-panel__info,
-        .player-video__loader,
-        .player-panel__timeline,
-        .player-panel__play,
-        .player-panel__line {
-            display: none !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-            visibility: hidden !important;
+        root.find('.retro-played')
+            .css('width', (p * 100) + '%');
+
+        root.find('.retro-thumb')
+            .css('left', (p * 100) + '%');
+
+        root.find('.retro-current')
+            .text(format(current));
+
+        root.find('.retro-left')
+            .text(
+                '-' +
+                format(
+                    Math.max(
+                        0,
+                        duration - current
+                    )
+                )
+            );
+    }
+
+    function updateButtons() {
+
+        if (!root || !video) return;
+
+        root.find('.retro-play-small')
+            .text(
+                video.paused
+                    ? '▶'
+                    : '❚❚'
+            );
+
+        root.find('.retro-main-play')
+            .text(
+                video.paused
+                    ? '▶'
+                    : '❚❚'
+            );
+
+        if (!video.paused) {
+            root.find('.retro-main-play').hide();
+        } else {
+            root.find('.retro-main-play').show();
         }
-        `;
-        $('body').append('<style id="nf-custom-player-style">' + css + '</style>');
     }
 
     function showUI() {
-        if (!customPlayer.root) return;
-        customPlayer.root.removeClass('hidden-ui').addClass('visible');
-        customPlayer.isVisible = true;
-        clearTimeout(customPlayer.hideTimer);
-        customPlayer.hideTimer = setTimeout(hideUI, 3500);
-    }
 
-    function hideUI() {
-        if (customPlayer.isDragging) return;
-        customPlayer.root.addClass('hidden-ui');
-        customPlayer.isVisible = false;
-    }
+        if (!root) return;
 
-    function updateProgress() {
-        if (!customPlayer.root || !customPlayer.duration) return;
-        var percent = (customPlayer.current / customPlayer.duration) * 100;
-        customPlayer.root.find('.nf-progress-played').css('width', percent + '%');
-        customPlayer.root.find('.nf-progress-thumb').css('left', percent + '%');
-        customPlayer.root.find('.nf-time-current').text(formatTime(customPlayer.current));
-        
-        var left = customPlayer.duration - customPlayer.current;
-        customPlayer.root.find('.nf-time-left').text('-' + formatTime(left));
-    }
+        root.find('.retro-ui')
+            .removeClass('retro-hidden');
 
-    function setPlaying(playing) {
-        var playBtn = customPlayer.root.find('.nf-play');
-        var bigBtn = customPlayer.root.find('.nf-play-big');
-        if (playing) {
-            playBtn.find('.icon-play').hide();
-            playBtn.find('.icon-pause').show();
-            bigBtn.hide();
-        } else {
-            playBtn.find('.icon-play').show();
-            playBtn.find('.icon-pause').hide();
-            bigBtn.show();
+        clearTimeout(hideTimer);
+
+        if (video && !video.paused) {
+
+            hideTimer = setTimeout(
+                function () {
+
+                    root.find('.retro-ui')
+                        .addClass('retro-hidden');
+
+                },
+                3500
+            );
         }
     }
 
-    function seekTo(percent) {
-        var video = Lampa.PlayerVideo.video();
-        if (!video || !customPlayer.duration) return;
-        video.currentTime = (percent / 100) * customPlayer.duration;
+    function notify(text) {
+
+        root.find('.retro-info')
+            .text(text)
+            .addClass('show');
+
+        setTimeout(
+            function () {
+                root.find('.retro-info')
+                    .removeClass('show');
+            },
+            1800
+        );
+
+        showUI();
     }
 
-    function skip(seconds) {
-        var video = Lampa.PlayerVideo.video();
-        if (!video) return;
-        video.currentTime = Math.max(0, Math.min(video.duration || 999999, video.currentTime + seconds));
+    function seek(sec) {
 
-        var ind = customPlayer.root.find('.nf-skip-indicator');
-        ind.html(seconds > 0 ? '10 ↻' : '↺ 10').addClass('show');
-        clearTimeout(window.nfSkipTimer);
-        window.nfSkipTimer = setTimeout(function () { ind.removeClass('show'); }, 700);
-        showUI();
+        if (!video) return;
+
+        video.currentTime =
+            Math.max(
+                0,
+                Math.min(
+                    video.duration || Infinity,
+                    video.currentTime + sec
+                )
+            );
+
+        notify(
+            sec > 0
+                ? '10 секунд вперёд'
+                : '10 секунд назад'
+        );
     }
 
     function togglePlay() {
-        var video = Lampa.PlayerVideo.video();
+
         if (!video) return;
-        if (video.paused) video.play();
-        else video.pause();
+
+        if (video.paused) {
+
+            video.play().catch(
+                function () {}
+            );
+
+        } else {
+
+            video.pause();
+
+        }
+
         showUI();
     }
 
-    function bindCustomPlayerEvents() {
-        var root = customPlayer.root;
+    function keydown(e) {
 
-        root.on('click', '.nf-play, .nf-play-big', togglePlay);
-        root.on('click', '.nf-skip-back', function () { skip(-10); });
-        root.on('click', '.nf-skip-fwd', function () { skip(10); });
-        root.on('click', '.nf-close', function () {
-            Lampa.Player.close();
-        });
+        if (
+            !root ||
+            !root.hasClass('retro-open')
+        ) return;
 
-        root.on('click', '.nf-source', function () {
+        if (e.keyCode === 37) {
+
+            e.preventDefault();
+            seek(-10);
+
+        } else if (e.keyCode === 39) {
+
+            e.preventDefault();
+            seek(10);
+
+        } else if (
+            e.keyCode === 32 ||
+            e.keyCode === 13
+        ) {
+
+            e.preventDefault();
+            togglePlay();
+
+        } else if (
+            e.keyCode === 27 ||
+            e.keyCode === 461 ||
+            e.keyCode === 10009
+        ) {
+
+            e.preventDefault();
+            close();
+
+        } else {
+
+            showUI();
+        }
+    }
+
+    function close() {
+
+        if (!root) return;
+
+        try {
+            video.pause();
+        } catch (e) {}
+
+        root.removeClass('retro-open');
+
+        clearTimeout(hideTimer);
+
+        if (video) {
+
+            video.removeAttribute('src');
+
             try {
-                $('.player-panel__source, .player-panel [data-action="source"]').trigger('click');
-            } catch(e) {}
-            showUI();
-        });
-        root.on('click', '.nf-size', function () {
-            try {
-                $('.player-panel [data-action="size"], .player-panel__size').trigger('click');
-            } catch(e) {}
-            showUI();
-        });
+                video.load();
+            } catch (e) {}
+        }
 
-        var progress = root.find('.nf-progress');
-        progress.on('mousedown touchstart', function () {
-            customPlayer.isDragging = true;
-            progress.addClass('dragging');
-            showUI();
-        });
-
-        $(document).on('mousemove.nfplayer touchmove.nfplayer', function (e) {
-            if (!customPlayer.isDragging) return;
-            var rect = progress[0].getBoundingClientRect();
-            var clientX = e.originalEvent.touches ? e.originalEvent.touches[0].clientX : e.clientX;
-            var percent = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-            seekTo(percent);
-            updateProgress();
-        });
-
-        $(document).on('mouseup.nfplayer touchend.nfplayer', function () {
-            if (customPlayer.isDragging) {
-                customPlayer.isDragging = false;
-                progress.removeClass('dragging');
-                showUI();
-            }
-        });
-
-        progress.on('click', function (e) {
-            var rect = this.getBoundingClientRect();
-            var percent = ((e.clientX - rect.left) / rect.width) * 100;
-            seekTo(percent);
-            showUI();
-        });
-
-        root.on('mousemove click touchstart', showUI);
-
-        $(window).on('keydown.nfplayer', function (e) {
-            if (!Lampa.Player.opened) return;
-            showUI();
-            if (e.keyCode === 32 || e.keyCode === 13) {
-                e.preventDefault();
-                togglePlay();
-            }
-            if (e.keyCode === 37) skip(-10);
-            if (e.keyCode === 39) skip(10);
-            if (e.keyCode === 27) Lampa.Player.close();
-        });
+        try {
+            Lampa.Controller.toggle('content');
+        } catch (e) {}
     }
 
-    function initCustomPlayer() {
-        createCustomPlayerUI();
-        bindCustomPlayerEvents();
+    function getUrl(params) {
 
-        Lampa.Listener.follow('player', function (e) {
-            if (e.type === 'start') {
-                customPlayer.title = (e.data && e.data.title) || 
-                                     (e.object && e.object.movie && (e.object.movie.title || e.object.movie.name)) || 
-                                     'Воспроизведение';
-                customPlayer.root.find('.nf-title').text(customPlayer.title);
-                customPlayer.root.addClass('visible').removeClass('hidden-ui');
-                showUI();
+        if (!params) return '';
+
+        if (typeof params === 'string') {
+            return params;
+        }
+
+        return params.url ||
+            params.src ||
+            '';
+    }
+
+    function getTitle(params) {
+
+        if (
+            !params ||
+            typeof params === 'string'
+        ) {
+            return 'Воспроизведение';
+        }
+
+        return params.title ||
+            params.name ||
+            (
+                params.movie &&
+                (
+                    params.movie.title ||
+                    params.movie.name
+                )
+            ) ||
+            'Воспроизведение';
+    }
+
+    function loadStream(params) {
+
+        var url = getUrl(params);
+
+        if (!url) {
+
+            notify(
+                'Не получен URL видео'
+            );
+
+            return;
+        }
+
+        root.find('.retro-title')
+            .text(
+                getTitle(params)
+            );
+
+        video.pause();
+
+        video.removeAttribute('src');
+
+        try {
+            video.load();
+        } catch (e) {}
+
+        video.src = url;
+
+        video.load();
+
+        video.play().catch(
+            function () {}
+        );
+
+        root.addClass('retro-open');
+
+        updateButtons();
+        showUI();
+    }
+
+    function installPlayerHook() {
+
+        if (
+            !Lampa.Player ||
+            !Lampa.Player.play ||
+            Lampa.Player.play.__retroWrapped
+        ) {
+            return;
+        }
+
+        originalPlay = Lampa.Player.play;
+
+        function retroPlay() {
+
+            if (
+                getMode() !== 'retro'
+            ) {
+                return originalPlay.apply(
+                    Lampa.Player,
+                    arguments
+                );
             }
-            if (e.type === 'destroy' || e.type === 'close') {
-                customPlayer.root.removeClass('visible');
-                clearTimeout(customPlayer.hideTimer);
+
+            var params = arguments[0];
+
+            if (!getUrl(params)) {
+
+                return originalPlay.apply(
+                    Lampa.Player,
+                    arguments
+                );
             }
-        });
 
-        Lampa.PlayerVideo.listener.follow('timeupdate', function (e) {
-            customPlayer.current = e.current || 0;
-            customPlayer.duration = e.duration || 0;
-            updateProgress();
-        });
+            createUI();
 
-        Lampa.PlayerVideo.listener.follow('play', function () { setPlaying(true); });
-        Lampa.PlayerVideo.listener.follow('pause', function () {
-            setPlaying(false);
-            showUI();
-        });
-        Lampa.PlayerVideo.listener.follow('ended', function () {
-            setPlaying(false);
-            showUI();
-        });
+            loadStream(params);
+
+            return true;
+        }
+
+        retroPlay.__retroWrapped = true;
+        retroPlay.__retroOriginal = originalPlay;
+
+        Lampa.Player.play = retroPlay;
     }
 
-    // ===================== ЗАПУСК =====================
-    function start() {
-        initCustomPlayer();
-        console.log('[NF Clean Player] Плагин успешно загружен');
+    function bootstrap() {
+
+        if (
+            typeof Lampa === 'undefined'
+        ) {
+            setTimeout(
+                bootstrap,
+                200
+            );
+
+            return;
+        }
+
+        ensureStyle();
+        addSettings();
+        createUI();
+        installPlayerHook();
+
+        Lampa.Listener.follow(
+            'app',
+            function (e) {
+
+                if (e.type === 'ready') {
+
+                    ensureStyle();
+                    createUI();
+                    installPlayerHook();
+                }
+            }
+        );
+
+        setInterval(
+            function () {
+
+                if (
+                    !originalPlay &&
+                    Lampa.Player
+                ) {
+                    installPlayerHook();
+                }
+
+            },
+            1000
+        );
+
+        console.log(
+            '[Lampa Retro Player] loaded'
+        );
     }
 
-    if (window.appready) {
-        start();
-    } else {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') start();
-        });
-    }
+    bootstrap();
+
 })();
-        
