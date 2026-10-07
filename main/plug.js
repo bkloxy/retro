@@ -1,228 +1,445 @@
-(function () {
-    'use strict';
+// ===================== ПОЛНОЦЕННЫЙ ЧИСТЫЙ ПЛЕЕР =====================
+var customPlayer = {
+    root: null,
+    hideTimer: null,
+    isVisible: true,
+    isDragging: false,
+    title: '',
+    duration: 0,
+    current: 0
+};
 
-    if (window.nf_player_ready) return;
-    window.nf_player_ready = true;
+function formatTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+}
 
-    // ===================== НАСТРОЙКИ =====================
-    var RED = '#e50914';          // цвет полосы и ползунка
-    var RADIUS = '0.5em';         // скругление кнопок
-    var SHOW_REMAINING = true;    // справа «осталось» со знаком минус
-    var AUTO_EXTERNAL = true;     // если встроенный плеер не справился, открыть во внешнем (VLC / MX)
-    var AUDIO_CHECK = true;       // «нет звука» тоже считать поломкой (например, звук AC3/DTS)
+function createCustomPlayerUI() {
+    if ($('#nf-custom-player').length) return;
 
-    // ===================== СТИЛИ ПАНЕЛИ =====================
-    function addStyles() {
-        var P = '.player-panel.nf-ready ';
-        var css = '' +
-            '.player-panel{background:linear-gradient(to top,rgba(0,0,0,.88),rgba(0,0,0,0))!important}' +
+    var html = `
+    <div id="nf-custom-player" class="nf-player">
+        <!-- Верхняя панель -->
+        <div class="nf-top">
+            <div class="nf-title"></div>
+            <div class="nf-close" tabindex="0">✕</div>
+        </div>
 
-            // --- полоса времени ---
-            '.player-panel__timeline{height:.45em!important;border-radius:1em!important;' +
-            'background:rgba(255,255,255,.3)!important;overflow:visible!important}' +
-            '.player-panel__peding{background:rgba(255,255,255,.35)!important;border-radius:1em!important}' +
-            '.player-panel__position{position:relative!important;background:' + RED + '!important;' +
-            'border-radius:1em!important;overflow:visible!important}' +
-            '.player-panel__position>div{display:none!important}' +
-            '.nf-thumb{position:absolute;right:-.8em;top:50%;width:1.6em;height:1.6em;margin-top:-.8em;' +
-            'border-radius:50%;background:' + RED + ';box-shadow:0 0 .6em rgba(0,0,0,.6)}' +
-            '.player-panel__timeline.focus .nf-thumb{transform:scale(1.25)}' +
-            '.player-panel__timenow,.player-panel__timeend{font-weight:700;font-size:1.3em;margin:0 .8em}' +
+        <!-- Центральная кнопка Play -->
+        <div class="nf-center">
+            <div class="nf-play-big" tabindex="0">
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+        </div>
 
-            // --- раскладка как в CloudStream: ряд 1 = play, время, полоса, осталось; ряд 2 = кнопки по центру ---
-            P + '.player-panel__body{display:grid!important;grid-template-columns:auto auto 1fr auto;' +
-            'grid-template-rows:auto auto auto;align-items:center;row-gap:.9em}' +
-            P + '.player-panel__line{display:contents!important}' +
-            P + '.player-panel__apex{position:absolute!important}' +
-            P + '.player-panel__center{grid-column:1;grid-row:1}' +
-            P + '.player-panel__timenow{grid-column:2;grid-row:1}' +
-            P + '.player-panel__timeline{grid-column:3;grid-row:1;width:auto!important;margin:0!important}' +
-            P + '.player-panel__timeend{grid-column:4;grid-row:1}' +
-            P + '.player-panel__iptv{grid-column:1/-1;grid-row:3}' +
-            P + '.player-panel__left,' + P + '.player-panel__right{display:none!important}' +
-            '.nf-pills{grid-column:1/-1;grid-row:2;display:flex;justify-content:center;align-items:center;' +
-            'flex-wrap:wrap;gap:.6em}' +
-            '.nf-pills .player-panel__box-buttons{display:flex;align-items:center;gap:.6em;margin:0!important}' +
+        <!-- Нижняя панель -->
+        <div class="nf-bottom">
+            <div class="nf-progress-wrap">
+                <div class="nf-time-current">0:00</div>
+                <div class="nf-progress">
+                    <div class="nf-progress-bg"></div>
+                    <div class="nf-progress-played"></div>
+                    <div class="nf-progress-thumb"></div>
+                </div>
+                <div class="nf-time-left">-0:00</div>
+            </div>
 
-            // --- кнопка play/pause: круг ---
-            '.player-panel__playpause{width:3.6em!important;height:3.6em!important;border-radius:50%!important;' +
-            'background:rgba(255,255,255,.18)!important;margin:0!important}' +
+            <div class="nf-controls">
+                <div class="nf-btn nf-skip-back" tabindex="0">
+                    <svg viewBox="0 0 24 24"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                    <span>10</span>
+                </div>
 
-            // --- кнопки-таблетки с подписями ---
-            '.nf-pills .button{width:auto!important;height:auto!important;min-width:0!important;' +
-            'display:inline-flex!important;align-items:center;justify-content:center;' +
-            'border-radius:' + RADIUS + '!important;background:rgba(255,255,255,.16)!important;' +
-            'padding:.55em 1.1em!important;margin:0!important}' +
-            '.nf-pills .button.focus{background:rgba(255,255,255,.4)!important}' +
-            '.nf-pills .button .tooltip{display:none!important}' +
-            '.nf-pills .button svg{width:1.5em;height:1.5em;flex-shrink:0}' +
-            '.nf-pills .button::after{margin-left:.6em;font-weight:700;font-size:1.05em;white-space:nowrap}' +
-            '.nf-pills .player-panel__playlist::after{content:"Источник"}' +
-            '.nf-pills .player-panel__next::after{content:"Следующая серия"}' +
-            '.nf-pills .player-panel__flow::after{content:"Поток"}' +
-            '.nf-pills .player-panel__subs::after{content:"Субтитры"}' +
-            '.nf-pills .player-panel__tracks::after{content:"Озвучка"}' +
-            '.nf-pills .player-panel__settings::after{content:"Настройки"}' +
-            '.nf-pills .player-panel__fullscreen::after{content:"Изменить размер"}';
-        $('body').append('<style id="nf-player-style">' + css + '</style>');
+                <div class="nf-btn nf-play" tabindex="0">
+                    <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    <svg class="icon-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </div>
+
+                <div class="nf-btn nf-skip-fwd" tabindex="0">
+                    <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg>
+                    <span>10</span>
+                </div>
+
+                <div class="nf-spacer"></div>
+
+                <div class="nf-btn nf-source" tabindex="0">Источник</div>
+                <div class="nf-btn nf-size" tabindex="0">Размер</div>
+            </div>
+        </div>
+
+        <div class="nf-skip-indicator"></div>
+    </div>`;
+
+    $('body').append(html);
+    customPlayer.root = $('#nf-custom-player');
+
+    // Стили — чистый минималистичный дизайн
+    var css = `
+    #nf-custom-player {
+        position: fixed; inset: 0; z-index: 99999;
+        background: transparent;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        opacity: 0;
+        transition: opacity .25s ease;
+        pointer-events: none;
+    }
+    #nf-custom-player.visible {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    #nf-custom-player.hidden-ui .nf-top,
+    #nf-custom-player.hidden-ui .nf-bottom,
+    #nf-custom-player.hidden-ui .nf-center {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity .3s;
     }
 
-    // переносим кнопки из левого и правого блоков в одну центральную строку
-    function arrange() {
-        var panel = $('.player-panel');
-        if (!panel.length || panel.hasClass('nf-ready')) return;
-        var body = panel.find('.player-panel__body').first();
-        if (!body.length) return;
-
-        var pills = $('<div class="nf-pills"></div>');
-        body.find('.player-panel__left .player-panel__box-buttons, ' +
-            '.player-panel__right.player-panel__tv-visible .player-panel__box-buttons').each(function () {
-            pills.append(this);
-        });
-        if (!pills.children().length) return;
-
-        body.append(pills);
-        panel.addClass('nf-ready');
+    /* Верх */
+    .nf-top {
+        position: absolute; top: 0; left: 0; right: 0;
+        padding: 2em 2.5em;
+        background: linear-gradient(to bottom, rgba(0,0,0,.7), transparent);
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .nf-title {
+        font-size: 1.7em; font-weight: 600;
+        text-shadow: 0 2px 10px rgba(0,0,0,.8);
+        max-width: 80%;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nf-close {
+        width: 2.6em; height: 2.6em; border-radius: 50%;
+        background: rgba(255,255,255,.12);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.3em; cursor: pointer;
+        transition: all .2s;
+    }
+    .nf-close:hover, .nf-close.focus {
+        background: rgba(255,255,255,.25);
+        transform: scale(1.1);
     }
 
-    function fmt(sec) {
-        sec = Math.max(0, Math.floor(sec || 0));
-        var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-        var mm = (h > 0 && m < 10 ? '0' : '') + m;
-        return (h > 0 ? h + ':' : '') + mm + ':' + (s < 10 ? '0' : '') + s;
+    /* Центр */
+    .nf-center {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    .nf-play-big {
+        width: 5.2em; height: 5.2em; border-radius: 50%;
+        background: rgba(0,0,0,.5);
+        border: 2.5px solid rgba(255,255,255,.85);
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        transition: all .2s;
+    }
+    .nf-play-big:hover, .nf-play-big.focus {
+        transform: scale(1.12);
+        background: rgba(229,9,20,.75);
+        border-color: #fff;
+    }
+    .nf-play-big svg {
+        width: 2.1em; height: 2.1em; fill: #fff;
+        margin-left: 0.18em;
     }
 
-    // красный ползунок, «осталось», раскладка
-    function tick() {
+    /* Низ */
+    .nf-bottom {
+        position: absolute; bottom: 0; left: 0; right: 0;
+        padding: 0 2.5em 2.2em;
+        background: linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.4) 60%, transparent);
+    }
+
+    .nf-progress-wrap {
+        display: flex; align-items: center; gap: 1.1em;
+        margin-bottom: 1.4em;
+    }
+    .nf-time-current, .nf-time-left {
+        font-size: 1.15em; font-weight: 500;
+        min-width: 3.8em; text-align: center;
+        opacity: 0.9;
+    }
+    .nf-progress {
+        flex: 1; height: 0.38em; position: relative;
+        cursor: pointer; border-radius: 4px;
+    }
+    .nf-progress-bg {
+        position: absolute; inset: 0;
+        background: rgba(255,255,255,.22);
+        border-radius: 4px;
+    }
+    .nf-progress-played {
+        position: absolute; left: 0; top: 0; bottom: 0;
+        background: #e50914;
+        border-radius: 4px; width: 0%;
+        transition: width .1s linear;
+    }
+    .nf-progress-thumb {
+        position: absolute; top: 50%;
+        width: 1em; height: 1em;
+        background: #fff; border-radius: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 8px rgba(0,0,0,.5);
+        left: 0%;
+        opacity: 0;
+        transition: opacity .2s;
+    }
+    .nf-progress:hover .nf-progress-thumb,
+    .nf-progress.dragging .nf-progress-thumb {
+        opacity: 1;
+    }
+
+    .nf-controls {
+        display: flex; align-items: center; gap: 1.3em;
+    }
+    .nf-btn {
+        height: 2.7em;
+        min-width: 2.7em;
+        padding: 0 1.1em;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 2em;
+        background: rgba(255,255,255,.12);
+        cursor: pointer;
+        transition: all .2s;
+        font-size: 1.05em;
+        font-weight: 500;
+        position: relative;
+        gap: 0.4em;
+    }
+    .nf-btn:hover, .nf-btn.focus {
+        background: rgba(255,255,255,.25);
+        transform: scale(1.06);
+    }
+    .nf-btn svg {
+        width: 1.35em; height: 1.35em; fill: #fff;
+    }
+    .nf-skip-back span, .nf-skip-fwd span {
+        position: absolute;
+        font-size: 0.68em;
+        font-weight: 700;
+        bottom: 0.2em;
+        right: 0.35em;
+    }
+    .nf-play {
+        width: 3.3em; height: 3.3em;
+        min-width: 3.3em;
+        background: #fff;
+        border-radius: 50%;
+        padding: 0;
+    }
+    .nf-play svg { fill: #000; width: 1.55em; height: 1.55em; }
+    .nf-play .icon-play { margin-left: 0.12em; }
+    .nf-spacer { flex: 1; }
+
+    .nf-skip-indicator {
+        position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%) scale(0.85);
+        font-size: 3em; font-weight: 700;
+        background: rgba(0,0,0,.6);
+        width: 2.6em; height: 2.6em;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0;
+        transition: all .2s;
+        pointer-events: none;
+    }
+    .nf-skip-indicator.show {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    /* Полностью убиваем родной плеер */
+    .player-panel,
+    .player__footer,
+    .player-panel__info,
+    .player-video__loader,
+    .player-panel__timeline,
+    .player-panel__play,
+    .player-panel__line {
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
+    }
+    `;
+    $('body').append('<style id="nf-custom-player-style">' + css + '</style>');
+}
+
+function showUI() {
+    if (!customPlayer.root) return;
+    customPlayer.root.removeClass('hidden-ui').addClass('visible');
+    customPlayer.isVisible = true;
+    clearTimeout(customPlayer.hideTimer);
+    customPlayer.hideTimer = setTimeout(hideUI, 3500);
+}
+
+function hideUI() {
+    if (customPlayer.isDragging) return;
+    customPlayer.root.addClass('hidden-ui');
+    customPlayer.isVisible = false;
+}
+
+function updateProgress() {
+    if (!customPlayer.root || !customPlayer.duration) return;
+    var percent = (customPlayer.current / customPlayer.duration) * 100;
+    customPlayer.root.find('.nf-progress-played').css('width', percent + '%');
+    customPlayer.root.find('.nf-progress-thumb').css('left', percent + '%');
+    customPlayer.root.find('.nf-time-current').text(formatTime(customPlayer.current));
+    
+    var left = customPlayer.duration - customPlayer.current;
+    customPlayer.root.find('.nf-time-left').text('-' + formatTime(left));
+}
+
+function setPlaying(playing) {
+    var playBtn = customPlayer.root.find('.nf-play');
+    var bigBtn = customPlayer.root.find('.nf-play-big');
+    if (playing) {
+        playBtn.find('.icon-play').hide();
+        playBtn.find('.icon-pause').show();
+        bigBtn.hide();
+    } else {
+        playBtn.find('.icon-play').show();
+        playBtn.find('.icon-pause').hide();
+        bigBtn.show();
+    }
+}
+
+function seekTo(percent) {
+    var video = Lampa.PlayerVideo.video();
+    if (!video || !customPlayer.duration) return;
+    video.currentTime = (percent / 100) * customPlayer.duration;
+}
+
+function skip(seconds) {
+    var video = Lampa.PlayerVideo.video();
+    if (!video) return;
+    video.currentTime = Math.max(0, Math.min(video.duration || 999999, video.currentTime + seconds));
+
+    var ind = customPlayer.root.find('.nf-skip-indicator');
+    ind.html(seconds > 0 ? '10 ↻' : '↺ 10').addClass('show');
+    clearTimeout(window.nfSkipTimer);
+    window.nfSkipTimer = setTimeout(function () { ind.removeClass('show'); }, 700);
+    showUI();
+}
+
+function togglePlay() {
+    var video = Lampa.PlayerVideo.video();
+    if (!video) return;
+    if (video.paused) video.play();
+    else video.pause();
+    showUI();
+}
+
+function bindCustomPlayerEvents() {
+    var root = customPlayer.root;
+
+    root.on('click', '.nf-play, .nf-play-big', togglePlay);
+    root.on('click', '.nf-skip-back', function () { skip(-10); });
+    root.on('click', '.nf-skip-fwd', function () { skip(10); });
+    root.on('click', '.nf-close', function () {
+        Lampa.Player.close();
+    });
+
+    // Источник и размер — открываем родные меню Lampa
+    root.on('click', '.nf-source', function () {
+        // Пытаемся открыть выбор источника
         try {
-            arrange();
+            $('.player-panel__source, .player-panel [data-action="source"]').trigger('click');
+        } catch(e) {}
+        showUI();
+    });
+    root.on('click', '.nf-size', function () {
+        try {
+            $('.player-panel [data-action="size"], .player-panel__size').trigger('click');
+        } catch(e) {}
+        showUI();
+    });
 
-            var pos = $('.player-panel__position');
-            if (pos.length && !pos.find('.nf-thumb').length) pos.append('<span class="nf-thumb"></span>');
+    // Прогресс
+    var progress = root.find('.nf-progress');
+    progress.on('mousedown touchstart', function () {
+        customPlayer.isDragging = true;
+        progress.addClass('dragging');
+        showUI();
+    });
 
-            if (SHOW_REMAINING) {
-                var v = document.querySelector('.player-video__display video');
-                if (v && isFinite(v.duration) && v.duration > 0) {
-                    $('.player-panel__timeend').text('-' + fmt(v.duration - v.currentTime));
-                }
-            }
-        } catch (e) { }
-    }
+    $(document).on('mousemove.nfplayer touchmove.nfplayer', function (e) {
+        if (!customPlayer.isDragging) return;
+        var rect = progress[0].getBoundingClientRect();
+        var clientX = e.originalEvent.touches ? e.originalEvent.touches[0].clientX : e.clientX;
+        var percent = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        seekTo(percent);
+        updateProgress();
+    });
 
-    // ===================== АВТО-ПЕРЕКЛЮЧЕНИЕ НА ВНЕШНИЙ ПЛЕЕР =====================
-    var fellBack = {};
+    $(document).on('mouseup.nfplayer touchend.nfplayer', function () {
+        if (customPlayer.isDragging) {
+            customPlayer.isDragging = false;
+            progress.removeClass('dragging');
+            showUI();
+        }
+    });
 
-    function externalPlay(v) {
-        var url = v.currentSrc || v.src;
-        if (!AUTO_EXTERNAL || !url || fellBack[url]) return;
-        if (!(window.Android && typeof window.Android.openPlayer === 'function')) return;
-        fellBack[url] = true;
-        var title = $.trim($('.player-panel__filename').text()) || 'Видео';
-        try { Lampa.Player.close(); } catch (e) { }
-        try { Lampa.Noty.show('Встроенный плеер не справился, открываю во внешнем'); } catch (e) { }
-        try { window.Android.openPlayer(url, JSON.stringify({ url: url, title: title })); } catch (e) { }
-    }
+    progress.on('click', function (e) {
+        var rect = this.getBoundingClientRect();
+        var percent = ((e.clientX - rect.left) / rect.width) * 100;
+        seekTo(percent);
+        showUI();
+    });
 
-    function initFallback() {
-        document.addEventListener('error', function (e) {
-            var v = e.target;
-            if (v && v.tagName === 'VIDEO' && v.error && (v.error.code === 3 || v.error.code === 4)) externalPlay(v);
-        }, true);
+    root.on('mousemove click touchstart', showUI);
 
-        setInterval(function () {
-            try {
-                var v = document.querySelector('.player-video__display video');
-                if (!v || v.paused || v.currentTime < 8) return;
-                var vid = v.webkitVideoDecodedByteCount, aud = v.webkitAudioDecodedByteCount;
-                if (typeof vid === 'number' && vid === 0) return externalPlay(v);
-                if (AUDIO_CHECK && typeof aud === 'number' && aud === 0 && vid > 0) externalPlay(v);
-            } catch (e) { }
-        }, 1000);
-    }
+    // Пульт / клавиатура
+    $(window).on('keydown.nfplayer', function (e) {
+        if (!Lampa.Player.opened) return;
+        showUI();
+        if (e.keyCode === 32 || e.keyCode === 13) { // Space / Enter
+            e.preventDefault();
+            togglePlay();
+        }
+        if (e.keyCode === 37) skip(-10);
+        if (e.keyCode === 39) skip(10);
+        if (e.keyCode === 27) Lampa.Player.close();
+    });
+}
 
-    // ===================== ЗНАЧОК ПЕРЕМОТКИ «-10 / +10» =====================
-    var ARROW = '<svg viewBox="0 0 100 100"><path d="M50 15 A35 35 0 1 0 85 50" fill="none" ' +
-        'stroke="#fff" stroke-width="6" stroke-linecap="round"/><polygon points="36,15 54,5 54,25" fill="#fff"/></svg>';
+function initCustomPlayer() {
+    createCustomPlayerUI();
+    bindCustomPlayerEvents();
 
-    function addSeekStyles() {
-        var css = '' +
-            '.nf-seek{position:fixed;top:50%;width:8em;height:8em;margin-top:-4em;z-index:2147483000;' +
-            'display:flex;align-items:center;justify-content:center;border-radius:50%;' +
-            'background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s}' +
-            '.nf-seek.show{opacity:1}' +
-            '.nf-seek--back{left:14%}' +
-            '.nf-seek--fwd{right:14%}' +
-            '.nf-seek svg{position:absolute;left:12%;top:12%;width:76%;height:76%}' +
-            '.nf-seek--fwd svg{transform:scaleX(-1)}' +
-            '.nf-seek span{position:relative;font-size:1.7em;font-weight:800;color:#fff;margin-top:.1em}';
-        $('body').append('<style id="nf-seek-style">' + css + '</style>' +
-            '<div class="nf-seek nf-seek--back">' + ARROW + '<span></span></div>' +
-            '<div class="nf-seek nf-seek--fwd">' + ARROW + '<span></span></div>');
-    }
+    Lampa.Listener.follow('player', function (e) {
+        if (e.type === 'start') {
+            customPlayer.title = (e.data && e.data.title) || 
+                                 (e.object && e.object.movie && (e.object.movie.title || e.object.movie.name)) || 
+                                 'Воспроизведение';
+            customPlayer.root.find('.nf-title').text(customPlayer.title);
+            customPlayer.root.addClass('visible').removeClass('hidden-ui');
+            showUI();
+        }
+        if (e.type === 'destroy' || e.type === 'close') {
+            customPlayer.root.removeClass('visible');
+            clearTimeout(customPlayer.hideTimer);
+        }
+    });
 
-    var lastT = 0, acc = 0, lastShow = 0, hideTimer;
+    Lampa.PlayerVideo.listener.follow('timeupdate', function (e) {
+        customPlayer.current = e.current || 0;
+        customPlayer.duration = e.duration || 0;
+        updateProgress();
+    });
 
-    function showSeek(delta) {
-        var now = Date.now();
-        if (now - lastShow < 900 && (acc > 0) === (delta > 0)) acc += delta; else acc = delta;
-        lastShow = now;
-
-        var back = acc < 0;
-        var on = $(back ? '.nf-seek--back' : '.nf-seek--fwd');
-        var off = $(back ? '.nf-seek--fwd' : '.nf-seek--back');
-        off.removeClass('show');
-        on.find('span').text((back ? '-' : '+') + Math.abs(Math.round(acc)));
-        on.addClass('show');
-        clearTimeout(hideTimer);
-        hideTimer = setTimeout(function () { on.removeClass('show'); }, 900);
-    }
-
-    function initSeek() {
-        document.addEventListener('timeupdate', function (e) {
-            var v = e.target;
-            if (v && v.tagName === 'VIDEO' && !v.seeking) lastT = v.currentTime;
-        }, true);
-
-        document.addEventListener('seeking', function (e) {
-            var v = e.target;
-            if (!v || v.tagName !== 'VIDEO') return;
-            var d = v.currentTime - lastT;
-            lastT = v.currentTime;
-            if (Math.abs(d) >= 1.5) showSeek(d);
-        }, true);
-    }
-
-    // ===================== ВВЕРХ / ВНИЗ ОТКРЫВАЮТ МЕНЮ =====================
-    function initMenuKeys() {
-        document.addEventListener('keydown', function (e) {
-            if (e.keyCode !== 38 && e.keyCode !== 40) return;
-            try {
-                if (!$('.player').length) return;
-                if ($('body').hasClass('selectbox--open')) return;
-                if ($('.player-panel.panel--visible').length) return;
-                $('.player-panel').addClass('panel--visible');
-                Lampa.Controller.toggle('player_panel');
-            } catch (err) { }
-        }, true);
-    }
-
-    // ===================== СТАРТ =====================
-    function start() {
-        addStyles();
-        addSeekStyles();
-        initSeek();
-        initMenuKeys();
-        initFallback();
-        setInterval(tick, 500);
-        console.log('[NF Player] loaded');
-    }
-
-    if (window.appready) start();
-    else {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') start();
-        });
-    }
-})();
-
-  
+    Lampa.PlayerVideo.listener.follow('play', function () { setPlaying(true); });
+    Lampa.PlayerVideo.listener.follow('pause', function () {
+        setPlaying(false);
+        showUI();
+    });
+    Lampa.PlayerVideo.listener.follow('ended', function () {
+        setPlaying(false);
+        showUI();
+    });
+}
