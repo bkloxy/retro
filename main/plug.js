@@ -1,16 +1,15 @@
 /*
- * Lampa plugin: "Old design" + "Netflix" (v1.4)
+ * Lampa plugin: "Old design" + "Netflix" (v1.5)
  *
  * Settings has TWO separate sections:
- *   "\u0421\u0442\u0430\u0440\u044b\u0439 \u0434\u0438\u0437\u0430\u0439\u043d"  - square posters (on by default) and the experimental top title/rating block.
- *   "Netflix"        - separate interface mode (off by default): dark style, square posters,
- *                      big top area for the first row, left icon navigation panel.
+ *   "Старый дизайн" - square posters (on by default) and the experimental top title/rating block.
+ *   "Netflix"       - separate interface mode (off by default): dark style, square posters,
+ *                     big top area for the first row, left icon navigation panel.
  *
- * v1.4: fixed the white/black screen of the top block (the body class and the block element shared
- * one class name, so the block styles hid the whole page). Added the Netflix mode.
+ * v1.5: removed the boot counter that silently disabled the whole plugin after two short sessions
+ *       (that was the reason the settings items disappeared on one TV box). The plugin now always starts.
+ *       Errors are handled locally: each part switches itself off only if it keeps failing.
  *
- * Safety: if the plugin fails to start twice in a row it disables itself; if a start fails once,
- * the experimental parts are switched off automatically.
  * Manual kill switch (browser console):  localStorage.setItem('oldui_off', '1')
  */
 (function () {
@@ -18,19 +17,13 @@
   if (window.oldui_plugin_ready) return;
   window.oldui_plugin_ready = true;
 
-  var VER = '1.4', GK = 'oldui_guard';
+  var VER = '1.5';
   function log() { try { console.log.apply(console, ['[oldui]'].concat([].slice.call(arguments))); } catch (e) {} }
 
   try { if (localStorage.getItem('oldui_off') === '1') { log('disabled by oldui_off'); return; } } catch (e) {}
 
-  function gget() { try { return JSON.parse(localStorage.getItem(GK) || '{}'); } catch (e) { return {}; } }
-  function gset(o) { try { localStorage.setItem(GK, JSON.stringify(o)); } catch (e) {} }
-  var g = gget();
-  if (g.v !== VER) g = { v: VER, boot: 0 };
-  var prevBoot = g.boot || 0;
-  if (prevBoot >= 2) { log('safe mode: previous starts did not finish, plugin disabled'); return; }
-  g.boot = prevBoot + 1; gset(g);
-  setTimeout(function () { var x = gget(); x.v = VER; x.boot = 0; gset(x); }, 8000);   // a start counts as good after 8 s
+  // clean up the leftover counter of older versions (it could block the plugin)
+  try { localStorage.removeItem('oldui_guard'); } catch (e) {}
 
   function setCls(node, cls, state) {
     if (node && node.classList.contains(cls) !== !!state) node.classList.toggle(cls, !!state);
@@ -112,6 +105,7 @@
   ].join('\n');
 
   function injectCss() {
+    if (document.getElementById('oldui-style')) return;
     var st = document.createElement('style');
     st.id = 'oldui-style';
     st.textContent = CSS;
@@ -349,21 +343,21 @@
   }
 
   /* ---------- start ---------- */
+  // Each step is isolated: a failure in one part must not stop the settings from appearing.
+  function step(name, fn) {
+    try { fn(); } catch (e) { log('step failed: ' + name, e); }
+  }
   function start() {
-    try {
-      // the previous start never finished: switch the experimental parts off
-      if (prevBoot >= 1) {
-        try { Lampa.Storage.set('oldui_info', false); Lampa.Storage.set('nf_on', false); } catch (e) {}
-      }
-      injectCss();
-      buildInfo();
-      buildHero();
-      buildRail();
-      addSettings();
-      applyBodyClasses();
+    step('css', injectCss);
+    step('settings', addSettings);          // settings first: they must appear no matter what
+    step('info', buildInfo);
+    step('hero', buildHero);
+    step('rail', buildRail);
+    step('classes', applyBodyClasses);
+    step('resize', function () {
       window.addEventListener('resize', function () { positionRail(); schedule(); });
-      log('ready v' + VER);
-    } catch (e) { log('start failed', e); }
+    });
+    log('ready v' + VER);
   }
 
   if (window.appready) start();
