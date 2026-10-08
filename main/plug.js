@@ -1,15 +1,14 @@
 (function () {
     'use strict';
 
-    var VERSION = 6;
+    var VERSION = 7;
     if (window.nf_ui_version && window.nf_ui_version >= VERSION) return;
     window.nf_ui_version = VERSION;
 
-    // убираем следы старых версий, если они успели загрузиться
+    // убираем следы старых версий
     try { $('#nf-interface-style, #nf-focus, #nf-rail').remove(); } catch (e) { }
 
     // ===================== НАСТРОЙКИ В ЛАМПЕ =====================
-    // Раздел «Интерфейс Netflix» появится в Настройки.
     var PARAMS = [
         { name: 'nf_ui_enable', title: 'Включить интерфейс Netflix', desc: 'Главный выключатель. Если выключить, Лампа выглядит как обычно' },
         { name: 'nf_ui_rect', title: 'Прямоугольные постеры и актёры', desc: 'Острые углы у постеров и прямоугольные фото актёров' },
@@ -73,92 +72,149 @@
             'body.nf-full .full-start__button.focus{background:rgba(255,255,255,.14)!important;' +
             'outline:.15em solid #fff;outline-offset:-.15em;box-shadow:none!important}' +
 
-            // --- одна общая белая рамка выбора ---
-            '#nf-focus{position:fixed;left:0;top:0;z-index:50;pointer-events:none;opacity:0;' +
-            'border:.2em solid #fff;border-radius:0;box-shadow:0 0 1.2em rgba(0,0,0,.55);' +
-            'transition:opacity .15s ease;will-change:transform,width,height}' +
-            '#nf-focus.fly{transition:transform .28s cubic-bezier(.2,.8,.2,1),width .28s cubic-bezier(.2,.8,.2,1),' +
-            'height .28s cubic-bezier(.2,.8,.2,1),opacity .15s ease}' +
-            // родные рамки Лампы прячем, чтобы не было двух рамок
-            'body.nf-frame .card.focus .card__view::after{border:0!important;box-shadow:none!important}' +
+            // --- одна общая белая рамка выбора (улучшенная) ---
+            '#nf-focus{position:fixed;left:0;top:0;z-index:9999;pointer-events:none;opacity:0;' +
+            'border:.18em solid #fff;border-radius:0;box-shadow:0 0 1.4em rgba(0,0,0,.6),0 0 0 .05em rgba(255,255,255,.3);' +
+            'transition:opacity .12s ease;will-change:transform,width,height;box-sizing:border-box}' +
+            '#nf-focus.fly{transition:transform .32s cubic-bezier(.25,.8,.25,1),width .32s cubic-bezier(.25,.8,.25,1),' +
+            'height .32s cubic-bezier(.25,.8,.25,1),opacity .12s ease}' +
+            // прячем родные рамки Лампы
+            'body.nf-frame .card.focus .card__view::after,' +
+            'body.nf-frame .card.focus .card__img::after{border:0!important;box-shadow:none!important;outline:none!important}' +
+            'body.nf-frame .selector.focus:not(.full-start__button),' +
             'body.nf-frame .menu__item.focus,body.nf-frame .menu__item.traverse,' +
-            'body.nf-frame .full-start__button.focus{outline:none!important}' +
+            'body.nf-frame .full-start__button.focus{outline:none!important;box-shadow:none!important}' +
+            'body.nf-frame .card.focus{outline:none!important}' +
 
-            // --- красивое меню слева: только оформление, размеры и положение не трогаем ---
-            'body.nf-menu .wrap__left{background:linear-gradient(to right,rgba(0,0,0,.94),rgba(0,0,0,.7) 75%,rgba(0,0,0,0))}' +
-            'body.nf-menu .menu__item{transition:background-color .2s ease,color .2s ease;border-radius:.3em}' +
-            'body.nf-menu .menu__text{font-weight:400}' +
-            // с белой рамкой пункт не заливаем белым: рамка сама показывает выбор
+            // --- красивое меню слева (ближе к Netflix) ---
+            'body.nf-menu .wrap__left{background:linear-gradient(to right,rgba(0,0,0,.96),rgba(0,0,0,.75) 80%,rgba(0,0,0,0))!important}' +
+            'body.nf-menu .menu__item{transition:background-color .2s ease,color .2s ease,transform .15s ease;border-radius:.25em;margin:.15em .4em}' +
+            'body.nf-menu .menu__text{font-weight:400;letter-spacing:.01em}' +
+            'body.nf-menu .menu__item.focus,body.nf-menu .menu__item.hover{background:rgba(255,255,255,.12)!important;color:#fff!important}' +
+            // когда рамка включена — фон пункта прозрачный
             'body.nf-menu.nf-frame .menu__item.focus,body.nf-menu.nf-frame .menu__item.hover{background:transparent!important;color:#fff!important}' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico [stroke]{stroke:#fff!important}' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico path[fill],' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico rect[fill],' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico circle[fill]{fill:#fff!important}' +
+            'body.nf-menu .head__profile,body.nf-menu .profile{transition:opacity .2s}' +
+            'body.nf-menu .menu__list{padding-top:.5em}' +
 
             // --- узкая полоса значков слева ---
             '#nf-rail{position:fixed;left:0;bottom:0;z-index:20;display:none;flex-direction:column;' +
-            'justify-content:center;align-items:center;background:linear-gradient(to right,rgba(0,0,0,.8),rgba(0,0,0,0))}' +
+            'justify-content:center;align-items:center;background:linear-gradient(to right,rgba(0,0,0,.85),rgba(0,0,0,0))}' +
             '#nf-rail.show{display:flex}' +
             'body.menu--open #nf-rail{opacity:0;pointer-events:none}' +
-            '.nf-rail__list{display:flex;flex-direction:column;align-items:center;gap:1.6em}' +
-            '.nf-rail__item{position:relative;width:1.8em;height:1.8em;opacity:.7;cursor:pointer;transition:opacity .2s}' +
-            '.nf-rail__item:hover,.nf-rail__item.active{opacity:1}' +
+            '.nf-rail__list{display:flex;flex-direction:column;align-items:center;gap:1.5em}' +
+            '.nf-rail__item{position:relative;width:1.75em;height:1.75em;opacity:.65;cursor:pointer;transition:opacity .2s,transform .15s}' +
+            '.nf-rail__item:hover,.nf-rail__item.active{opacity:1;transform:scale(1.08)}' +
             '.nf-rail__item svg{width:100%;height:100%;display:block}' +
             '.nf-rail__item [stroke]{stroke:#fff}' +
             '.nf-rail__item path[fill]:not([fill=none]),.nf-rail__item rect[fill]:not([fill=none]),' +
             '.nf-rail__item circle[fill]:not([fill=none]){fill:#fff}' +
-            '.nf-rail__item.active::after{content:"";position:absolute;left:15%;right:15%;bottom:-.5em;height:.18em;' +
+            '.nf-rail__item.active::after{content:"";position:absolute;left:18%;right:18%;bottom:-.45em;height:.16em;' +
             'border-radius:1em;background:#e50914}';
         $('body').append('<style id="nf-interface-style">' + css + '</style>');
     }
 
-    // ===================== ПЛАВНАЯ БЕЛАЯ РАМКА ВЫБОРА =====================
-    var frame, lastEl = null, shown = false, flyTimer;
+    // ===================== ПЛАВНАЯ БЕЛАЯ РАМКА ВЫБОРА (ИСПРАВЛЕННАЯ) =====================
+    var frame, lastEl = null, shown = false, flyTimer, lastRect = null;
 
     function hideFrame() {
-        frame.style.opacity = 0;
+        if (!frame) return;
+        frame.style.opacity = '0';
         shown = false;
         lastEl = null;
+        lastRect = null;
     }
 
-    function anyVisible(sel) {
-        var n = document.querySelectorAll(sel);
-        for (var i = 0; i < n.length; i++) {
-            if (n[i].getClientRects().length && getComputedStyle(n[i]).visibility !== 'hidden') return true;
+    function isVisible(el) {
+        if (!el || !el.getClientRects) return false;
+        var rects = el.getClientRects();
+        if (!rects.length) return false;
+        var style = window.getComputedStyle(el);
+        return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+    }
+
+    function anyOverlay() {
+        return !!document.querySelector('.player, .selectbox, .modal, .search, .settings, .about');
+    }
+
+    function findFocusTarget() {
+        var candidates = document.querySelectorAll('.focus, .selector.focus, .card.focus, .menu__item.focus, .full-start__button.focus');
+        var best = null;
+        var bestArea = 0;
+
+        for (var i = 0; i < candidates.length; i++) {
+            var el = candidates[i];
+            if (!isVisible(el)) continue;
+
+            // Пропускаем элементы внутри левого меню, если меню закрыто
+            if (el.closest && el.closest('.wrap__left') && !document.body.classList.contains('menu--open')) continue;
+
+            var target = el;
+            if (el.classList.contains('card') || el.querySelector('.card__view')) {
+                var view = el.querySelector('.card__view') || el.querySelector('.card__img');
+                if (view && isVisible(view)) target = view;
+            }
+
+            var r = target.getBoundingClientRect();
+            if (r.width < 4 || r.height < 4) continue;
+            if (r.bottom < -20 || r.top > window.innerHeight + 20) continue;
+            if (r.right < -20 || r.left > window.innerWidth + 20) continue;
+
+            var area = r.width * r.height;
+            if (area > bestArea) {
+                bestArea = area;
+                best = target;
+            }
         }
-        return false;
+        return best;
     }
 
     function updateFrame() {
-        var b = document.body;
-        if (!b.classList.contains('nf-frame') || anyVisible('.player, .selectbox, .modal')) return hideFrame();
-
-        var list = document.querySelectorAll('.wrap .selector.focus');
-        if (!list.length) return hideFrame();
-
-        var el = list[list.length - 1];
-        if (el.closest && el.closest('.wrap__left') && !b.classList.contains('menu--open')) return hideFrame();
-        var target = el.classList.contains('card') ? (el.querySelector('.card__view') || el) : el;
-        var r = target.getBoundingClientRect();
-        if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > window.innerHeight) return hideFrame();
-
-        // летит с одного элемента на другой; если рамка только появилась, показываем сразу на месте
-        if (el !== lastEl) {
-            lastEl = el;
-            if (shown) {
-                frame.classList.add('fly');
-                clearTimeout(flyTimer);
-                flyTimer = setTimeout(function () { frame.classList.remove('fly'); }, 380);
-            } else {
-                frame.classList.remove('fly');
-            }
+        if (!document.body.classList.contains('nf-frame') || anyOverlay()) {
+            return hideFrame();
         }
 
-        var pad = 4;
-        frame.style.opacity = 1;
-        frame.style.width = (r.width + pad * 2) + 'px';
-        frame.style.height = (r.height + pad * 2) + 'px';
-        frame.style.transform = 'translate3d(' + (r.left - pad) + 'px,' + (r.top - pad) + 'px,0)';
+        var target = findFocusTarget();
+        if (!target) return hideFrame();
+
+        var r = target.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4) return hideFrame();
+
+        var pad = 3;
+        var newLeft = Math.round(r.left - pad);
+        var newTop = Math.round(r.top - pad);
+        var newW = Math.round(r.width + pad * 2);
+        var newH = Math.round(r.height + pad * 2);
+
+        var sameEl = (target === lastEl);
+        var moved = !lastRect ||
+            Math.abs(lastRect.left - newLeft) > 1 ||
+            Math.abs(lastRect.top - newTop) > 1 ||
+            Math.abs(lastRect.width - newW) > 1 ||
+            Math.abs(lastRect.height - newH) > 1;
+
+        if (!sameEl || moved) {
+            if (shown && sameEl === false) {
+                frame.classList.add('fly');
+                clearTimeout(flyTimer);
+                flyTimer = setTimeout(function () {
+                    if (frame) frame.classList.remove('fly');
+                }, 360);
+            } else if (!shown) {
+                frame.classList.remove('fly');
+            }
+            lastEl = target;
+        }
+
+        frame.style.opacity = '1';
+        frame.style.width = newW + 'px';
+        frame.style.height = newH + 'px';
+        frame.style.transform = 'translate3d(' + newLeft + 'px,' + newTop + 'px,0)';
+
+        lastRect = { left: newLeft, top: newTop, width: newW, height: newH };
         shown = true;
     }
 
@@ -166,6 +222,7 @@
         frame = document.createElement('div');
         frame.id = 'nf-focus';
         document.body.appendChild(frame);
+
         (function loop() {
             try { updateFrame(); } catch (e) { }
             requestAnimationFrame(loop);
@@ -173,8 +230,6 @@
     }
 
     // ===================== УЗКАЯ ПОЛОСА ЗНАЧКОВ СЛЕВА =====================
-    // Полоса рисуется поверх свободного поля слева от контента и ничего не сдвигает.
-    // Клик мышью по значку = нажатие на тот же пункт родного меню. С пульта «влево» открывает родное меню с названиями.
     var RAIL_ITEMS = [
         { id: 'search', text: 'Поиск' },
         { id: 'main', text: 'Главная' },
@@ -247,12 +302,11 @@
         var b = document.body;
         if (!rail) return buildRail();
 
-        if (!b.classList.contains('nf-rail-on') || anyVisible('.player, .selectbox, .modal')) {
+        if (!b.classList.contains('nf-rail-on') || anyOverlay()) {
             rail.classList.remove('show');
             return;
         }
 
-        // свободное поле слева от контента
         if (!b.classList.contains('menu--open')) {
             var left = 99999;
             ['.wrap__content .items-line__title', '.wrap__content .card', '.wrap__content .full-start__poster',
@@ -297,8 +351,8 @@
         initFrame();
         initRail();
         apply();
-        console.log('[NF Interface] v' + VERSION + ' loaded');
-        try { Lampa.Noty.show('Интерфейс Netflix: версия ' + VERSION + ' загружена'); } catch (e) { }
+        console.log('[NF Interface] v' + VERSION + ' loaded (frame fixed)');
+        try { Lampa.Noty.show('Интерфейс Netflix: версия ' + VERSION + ' (рамка исправлена)'); } catch (e) { }
     }
 
     if (window.appready) start();
