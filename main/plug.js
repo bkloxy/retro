@@ -1,20 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__RETRO_NETFLIX_UI__) return;
-    window.__RETRO_NETFLIX_UI__ = true;
-
-    /*
-     * RETRO — NETFLIX UI FOR LAMPA
-     * Designed for Lampa 3.x
-     *
-     * Important:
-     * This plugin DOES NOT create another player.
-     * It DOES NOT replace Lampa navigation.
-     * It styles Lampa's native interface and native cards.
-     */
-
-    var VERSION = '1.0.0';
+    if (window.__RETRO_NETFLIX_UI_V2__) return;
+    window.__RETRO_NETFLIX_UI_V2__ = true;
 
     if (!window.Lampa) return;
 
@@ -26,18 +14,20 @@
         return;
     }
 
-    var STYLE_ID = 'retro-netflix-style';
+    var STYLE_ID = 'retro-netflix-v2-style';
     var FRAME_ID = 'retro-netflix-focus';
 
-    function injectStyle() {
+    function addStyle() {
+
         if (document.getElementById(STYLE_ID)) return;
 
         var style = document.createElement('style');
         style.id = STYLE_ID;
 
         style.textContent = `
+
 /* =========================================================
-   RETRO / NETFLIX
+   RETRO — NETFLIX INTERFACE
    ========================================================= */
 
 html,
@@ -45,395 +35,529 @@ body {
     background: #050505 !important;
 }
 
-body {
+body.retro-netflix {
+    background: #050505 !important;
+
     --retro-red: #e50914;
     --retro-white: #ffffff;
-    --retro-muted: #8f8f8f;
-    --retro-panel: #111111;
+    --retro-gray: #b3b3b3;
+    --retro-dark: #050505;
 }
 
-/* ---------------------------------------------------------
-   MAIN BACKGROUND
-   --------------------------------------------------------- */
+/* =========================================================
+   GLOBAL
+   ========================================================= */
 
-body.retro-netflix-active,
-body.retro-netflix-active .app,
-body.retro-netflix-active .main,
-body.retro-netflix-active .activity,
-body.retro-netflix-active .layer {
-    background: #050505 !important;
+.retro-netflix .activity,
+.retro-netflix .main,
+.retro-netflix .content,
+.retro-netflix .layer {
+    background: transparent !important;
 }
 
-/* ---------------------------------------------------------
-   LEFT MENU
-   --------------------------------------------------------- */
+/* =========================================================
+   LEFT NETFLIX MENU
+   ========================================================= */
 
-.retro-netflix-active .wrap__left {
+.retro-netflix .wrap__left {
+
+    width: 250px !important;
+
     background:
         linear-gradient(
             90deg,
-            rgba(0,0,0,.98) 0%,
-            rgba(0,0,0,.92) 72%,
-            rgba(0,0,0,0) 100%
+            #050505 0%,
+            #050505 62%,
+            rgba(5,5,5,.96) 78%,
+            rgba(5,5,5,0) 100%
         ) !important;
 
-    border: 0 !important;
+    border: none !important;
+
+    box-shadow: none !important;
+
+    padding-top: 70px !important;
+
+    z-index: 1000 !important;
 }
 
-.retro-netflix-active .menu__item {
-    border-radius: 6px !important;
+/* Netflix-style menu items */
+
+.retro-netflix .menu__item {
+
+    position: relative;
+
+    height: 54px !important;
+
+    margin: 5px 18px !important;
+
+    padding-left: 18px !important;
+
+    border-radius: 7px !important;
+
+    color: #a9a9a9 !important;
+
     transition:
-        transform .18s ease,
         background .18s ease,
-        color .18s ease;
+        color .18s ease,
+        transform .18s ease;
+
 }
 
-.retro-netflix-active .menu__item:hover {
-    background: rgba(255,255,255,.08) !important;
+/* icon */
+
+.retro-netflix .menu__item .menu__ico {
+
+    opacity: .72;
+
+    transition:
+        opacity .18s ease,
+        transform .18s ease;
+
 }
 
-.retro-netflix-active .menu__item.focus {
-    background: rgba(255,255,255,.12) !important;
+/* hover */
+
+.retro-netflix .menu__item:hover {
+
+    background:
+        rgba(255,255,255,.07) !important;
+
     color: #fff !important;
-    transform: translateX(4px);
+
 }
 
-.retro-netflix-active .menu__item .menu__ico {
-    opacity: .75;
+/* focused menu */
+
+.retro-netflix .menu__item.focus {
+
+    background:
+        rgba(255,255,255,.13) !important;
+
+    color: #fff !important;
+
+    transform: translateX(5px);
+
 }
 
-.retro-netflix-active .menu__item.focus .menu__ico {
+/* white Netflix-like indicator */
+
+.retro-netflix .menu__item.focus::before {
+
+    content: '';
+
+    position: absolute;
+
+    left: 0;
+
+    top: 10px;
+
+    bottom: 10px;
+
+    width: 3px;
+
+    border-radius: 3px;
+
+    background: #fff;
+
+}
+
+/* focused icon */
+
+.retro-netflix .menu__item.focus .menu__ico {
+
     opacity: 1;
+
+    transform: scale(1.08);
+
 }
 
-/* ---------------------------------------------------------
-   HEAD / TOP AREA
-   --------------------------------------------------------- */
+/* =========================================================
+   TOP HEADER
+   ========================================================= */
 
-.retro-netflix-active .head {
+.retro-netflix .head {
+
     background:
         linear-gradient(
             180deg,
-            rgba(0,0,0,.96) 0%,
-            rgba(0,0,0,.72) 65%,
+            rgba(0,0,0,.98) 0%,
+            rgba(0,0,0,.90) 42%,
             rgba(0,0,0,0) 100%
         ) !important;
 
-    border: 0 !important;
+    border: none !important;
+
     box-shadow: none !important;
+
 }
 
-.retro-netflix-active .head__action,
-.retro-netflix-active .head__button {
-    border-radius: 50% !important;
+/* =========================================================
+   CONTENT OFFSET
+   ========================================================= */
+
+.retro-netflix .content {
+
+    padding-left: 40px !important;
+
 }
 
-/* ---------------------------------------------------------
-   CONTENT
-   --------------------------------------------------------- */
+/* =========================================================
+   ROWS
+   ========================================================= */
 
-.retro-netflix-active .content,
-.retro-netflix-active .main__content {
-    background: transparent !important;
+.retro-netflix .items-line {
+
+    margin-bottom: 42px !important;
+
 }
 
-/* ---------------------------------------------------------
-   ROW TITLES
-   --------------------------------------------------------- */
+/* row title */
 
-.retro-netflix-active .items-line__title,
-.retro-netflix-active .items-line__title-text {
+.retro-netflix .items-line__title {
+
+    margin-bottom: 17px !important;
+
     color: #fff !important;
+
+    font-size: 1.42em !important;
+
     font-weight: 700 !important;
-    letter-spacing: -.2px;
+
+    letter-spacing: -.02em;
+
 }
 
-.retro-netflix-active .items-line__title {
-    margin-bottom: .65em !important;
-}
-
-/* ---------------------------------------------------------
-   CARD GRID
-   --------------------------------------------------------- */
-
-.retro-netflix-active .card {
-    border-radius: 4px !important;
-    overflow: visible !important;
-    background: transparent !important;
-}
-
-.retro-netflix-active .card__view {
-    border-radius: 4px !important;
-    overflow: hidden !important;
-    background: #111 !important;
-
-    box-shadow:
-        0 2px 8px rgba(0,0,0,.30);
-
-    transition:
-        transform .20s cubic-bezier(.2,.8,.2,1),
-        box-shadow .20s ease,
-        filter .20s ease;
-}
-
-.retro-netflix-active .card__img {
-    border-radius: 4px !important;
-}
-
-/* ---------------------------------------------------------
-   RECTANGULAR NETFLIX POSTERS
-   --------------------------------------------------------- */
-
-.retro-netflix-active .card--wide .card__view,
-.retro-netflix-active .card--movie .card__view {
-    aspect-ratio: 16 / 9 !important;
-}
-
-.retro-netflix-active .card--wide .card__img,
-.retro-netflix-active .card--movie .card__img {
-    aspect-ratio: 16 / 9 !important;
-    object-fit: cover !important;
-}
+/* =========================================================
+   POSTERS
+   ========================================================= */
 
 /*
- * Lampa has several card variants.
- * These rules make the normal catalog cards wider without
- * touching the actual data/model.
- */
+   IMPORTANT:
+   Normal Netflix/TMDB vertical poster.
+   2:3 aspect ratio.
+*/
 
-.retro-netflix-active .items-line .card {
-    width: 18vw !important;
-    min-width: 18vw !important;
-    max-width: 18vw !important;
+.retro-netflix .items-line .card {
+
+    width: 190px !important;
+
+    min-width: 190px !important;
+
+    max-width: 190px !important;
+
+    height: auto !important;
+
+    margin-right: 14px !important;
+
 }
 
-.retro-netflix-active .items-line .card__view {
-    aspect-ratio: 16 / 9;
+/* poster container */
+
+.retro-netflix .items-line .card__view {
+
+    position: relative;
+
+    width: 100% !important;
+
+    aspect-ratio: 2 / 3 !important;
+
+    height: auto !important;
+
+    overflow: hidden !important;
+
+    border-radius: 5px !important;
+
+    background: #111 !important;
+
+    transform-origin: center center;
+
+    transition:
+        transform .22s cubic-bezier(.2,.8,.2,1),
+        box-shadow .22s ease;
+
 }
 
-/* ---------------------------------------------------------
-   CARD INFORMATION
-   --------------------------------------------------------- */
+/* image */
 
-.retro-netflix-active .card__title {
-    color: #fff !important;
-    font-weight: 600 !important;
+.retro-netflix .items-line .card__img {
+
+    width: 100% !important;
+
+    height: 100% !important;
+
+    aspect-ratio: 2 / 3 !important;
+
+    object-fit: cover !important;
+
+    border-radius: 5px !important;
+
+    transition:
+        transform .35s cubic-bezier(.2,.8,.2,1),
+        filter .25s ease;
+
 }
 
-.retro-netflix-active .card__subtitle {
-    color: #8e8e8e !important;
+/* =========================================================
+   POSTER FOCUS ANIMATION
+   ========================================================= */
+
+.retro-netflix .card.focus {
+
+    z-index: 50 !important;
+
 }
 
-.retro-netflix-active .card__vote {
-    border-radius: 4px !important;
-}
+.retro-netflix .card.focus .card__view {
 
-/* ---------------------------------------------------------
-   NATIVE LAMPA FOCUS
-   --------------------------------------------------------- */
-
-.retro-netflix-active .card.focus .card__view {
-    transform: scale(1.045);
+    transform: scale(1.075);
 
     box-shadow:
         0 0 0 3px #fff,
-        0 10px 30px rgba(0,0,0,.65);
+        0 12px 35px rgba(0,0,0,.72);
 
-    z-index: 20;
 }
 
-/*
- * The old Lampa focus decorations are visually hidden.
- * The actual Lampa focus state remains untouched.
- */
+/* slight image zoom */
 
-.retro-netflix-active .card.focus::before,
-.retro-netflix-active .card.focus::after {
-    box-shadow: none !important;
+.retro-netflix .card.focus .card__img {
+
+    transform: scale(1.025);
+
 }
 
-/* ---------------------------------------------------------
-   SMOOTH FOCUS FRAME
-   --------------------------------------------------------- */
+/* =========================================================
+   SINGLE SMOOTH WHITE FOCUS FRAME
+   ========================================================= */
 
 #retro-netflix-focus {
+
     position: fixed;
 
     pointer-events: none;
 
-    z-index: 9998;
-
-    border: 3px solid #fff;
-
-    border-radius: 5px;
-
-    opacity: 0;
+    z-index: 999999;
 
     box-sizing: border-box;
 
+    border: 3px solid #fff;
+
+    border-radius: 6px;
+
+    opacity: 0;
+
     transition:
-        left .16s cubic-bezier(.2,.8,.2,1),
-        top .16s cubic-bezier(.2,.8,.2,1),
-        width .16s cubic-bezier(.2,.8,.2,1),
-        height .16s cubic-bezier(.2,.8,.2,1),
+        left .18s cubic-bezier(.2,.8,.2,1),
+        top .18s cubic-bezier(.2,.8,.2,1),
+        width .18s cubic-bezier(.2,.8,.2,1),
+        height .18s cubic-bezier(.2,.8,.2,1),
         opacity .12s ease;
 
     box-shadow:
-        0 8px 28px rgba(0,0,0,.60);
+        0 12px 35px rgba(0,0,0,.65);
+
 }
 
-/*
- * We don't show the external frame on touch devices.
- * Native focus still works.
- */
+/* =========================================================
+   CARD TITLES
+   ========================================================= */
 
-@media (pointer: coarse) {
-    #retro-netflix-focus {
-        display: none;
-    }
+.retro-netflix .card__title {
+
+    color: #fff !important;
+
+    font-size: .92em !important;
+
+    font-weight: 600 !important;
+
+    margin-top: 9px !important;
+
 }
 
-/* ---------------------------------------------------------
-   ROW SPACING
-   --------------------------------------------------------- */
+.retro-netflix .card__subtitle {
 
-.retro-netflix-active .items-line {
-    margin-bottom: 2.3em !important;
+    color: #8d8d8d !important;
+
 }
 
-/* ---------------------------------------------------------
-   SCROLLBAR
-   --------------------------------------------------------- */
+/* =========================================================
+   RATING
+   ========================================================= */
 
-.retro-netflix-active ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-}
+.retro-netflix .card__vote {
 
-.retro-netflix-active ::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.retro-netflix-active ::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,.25);
-    border-radius: 20px;
-}
-
-/* ---------------------------------------------------------
-   BUTTONS
-   --------------------------------------------------------- */
-
-.retro-netflix-active .button,
-.retro-netflix-active .selector {
     border-radius: 4px !important;
+
 }
 
-.retro-netflix-active .button.focus {
-    box-shadow:
-        0 0 0 2px #fff !important;
-}
+/* =========================================================
+   DETAILS / FILM PAGE
+   ========================================================= */
 
-/* ---------------------------------------------------------
-   FULL START / DETAILS
-   --------------------------------------------------------- */
+.retro-netflix .full-start {
 
-.retro-netflix-active .full-start {
     background: #050505 !important;
+
 }
 
-.retro-netflix-active .full-start__background {
-    opacity: .48 !important;
+.retro-netflix .full-start__background {
+
+    opacity: .46 !important;
+
 }
 
-.retro-netflix-active .full-start__body {
+.retro-netflix .full-start__body {
+
     background:
         linear-gradient(
             90deg,
-            rgba(5,5,5,.98) 0%,
-            rgba(5,5,5,.82) 42%,
-            rgba(5,5,5,.30) 75%,
+            rgba(5,5,5,.99) 0%,
+            rgba(5,5,5,.90) 34%,
+            rgba(5,5,5,.48) 67%,
             rgba(5,5,5,0) 100%
         ) !important;
+
 }
 
-.retro-netflix-active .full-start__poster {
-    border-radius: 5px !important;
+/* detail poster */
+
+.retro-netflix .full-start__poster {
+
+    border-radius: 6px !important;
+
     overflow: hidden !important;
+
     box-shadow:
-        0 15px 45px rgba(0,0,0,.60);
+        0 18px 55px rgba(0,0,0,.65);
+
 }
 
-/* ---------------------------------------------------------
-   DETAIL BUTTONS
-   --------------------------------------------------------- */
+/* detail buttons */
 
-.retro-netflix-active .full-start__buttons .button {
-    background: #fff !important;
-    color: #000 !important;
+.retro-netflix .full-start__buttons .button {
+
+    border-radius: 5px !important;
+
 }
 
-.retro-netflix-active .full-start__buttons .button.focus {
-    background: #e50914 !important;
-    color: #fff !important;
+.retro-netflix .full-start__buttons .button.focus {
+
+    box-shadow:
+        0 0 0 2px #fff !important;
+
 }
 
-/* ---------------------------------------------------------
-   PLAYER SAFETY
-   ---------------------------------------------------------
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
 
-   IMPORTANT:
-   Don't touch the video element itself.
-   Lampa's native player remains the playback engine.
- */
+.retro-netflix ::-webkit-scrollbar {
 
-.retro-netflix-active .player video {
-    visibility: visible !important;
-    opacity: 1 !important;
+    width: 5px;
+    height: 5px;
+
 }
 
-/* ---------------------------------------------------------
-   MOBILE
-   --------------------------------------------------------- */
+.retro-netflix ::-webkit-scrollbar-track {
 
-@media (max-width: 900px) {
+    background: transparent;
 
-    .retro-netflix-active .items-line .card {
-        width: 42vw !important;
-        min-width: 42vw !important;
-        max-width: 42vw !important;
-    }
-
-    .retro-netflix-active .items-line {
-        margin-bottom: 1.8em !important;
-    }
 }
+
+.retro-netflix ::-webkit-scrollbar-thumb {
+
+    background: rgba(255,255,255,.25);
+
+    border-radius: 20px;
+
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.retro-netflix .button {
+
+    border-radius: 5px !important;
+
+}
+
+.retro-netflix .button.focus {
+
+    box-shadow:
+        0 0 0 2px #fff !important;
+
+}
+
+/* =========================================================
+   DESKTOP
+   ========================================================= */
 
 @media (min-width: 1400px) {
 
-    .retro-netflix-active .items-line .card {
-        width: 16vw !important;
-        min-width: 16vw !important;
-        max-width: 16vw !important;
+    .retro-netflix .items-line .card {
+
+        width: 205px !important;
+
+        min-width: 205px !important;
+
+        max-width: 205px !important;
+
     }
+
 }
 
-/* ---------------------------------------------------------
-   ANIMATION
-   --------------------------------------------------------- */
+/* =========================================================
+   SMALL SCREENS
+   ========================================================= */
 
-@media (prefers-reduced-motion: no-preference) {
+@media (max-width: 900px) {
 
-    .retro-netflix-active .card__view {
-        will-change: transform;
+    .retro-netflix .wrap__left {
+
+        width: 205px !important;
+
     }
+
+    .retro-netflix .content {
+
+        padding-left: 15px !important;
+
+    }
+
+    .retro-netflix .items-line .card {
+
+        width: 135px !important;
+
+        min-width: 135px !important;
+
+        max-width: 135px !important;
+
+    }
+
 }
 
-        `;
+/* =========================================================
+   TOUCH DEVICES
+   ========================================================= */
+
+@media (pointer: coarse) {
+
+    #retro-netflix-focus {
+
+        display: none;
+
+    }
+
+}
+
+`;
 
         document.head.appendChild(style);
     }
 
-    function createFocusFrame() {
+    function createFocus() {
+
         if (document.getElementById(FRAME_ID)) return;
 
         var frame = document.createElement('div');
@@ -443,138 +567,148 @@ body.retro-netflix-active .layer {
         document.body.appendChild(frame);
     }
 
-    function moveFocusFrame() {
+    function updateFocus() {
 
-        var frame = document.getElementById(FRAME_ID);
+        var frame =
+            document.getElementById(FRAME_ID);
 
         if (!frame) return;
 
-        var focused = document.querySelector(
-            '.card.focus .card__view'
-        );
+        var card =
+            document.querySelector(
+                '.card.focus .card__view'
+            );
 
-        if (!focused) {
+        if (!card) {
+
             frame.style.opacity = '0';
+
             return;
         }
 
-        var rect = focused.getBoundingClientRect();
+        var rect =
+            card.getBoundingClientRect();
 
         if (!rect.width || !rect.height) {
+
             frame.style.opacity = '0';
+
             return;
         }
 
-        frame.style.left = (rect.left - 3) + 'px';
-        frame.style.top = (rect.top - 3) + 'px';
-        frame.style.width = (rect.width + 6) + 'px';
-        frame.style.height = (rect.height + 6) + 'px';
+        frame.style.left =
+            (rect.left - 3) + 'px';
+
+        frame.style.top =
+            (rect.top - 3) + 'px';
+
+        frame.style.width =
+            (rect.width + 6) + 'px';
+
+        frame.style.height =
+            (rect.height + 6) + 'px';
+
         frame.style.opacity = '1';
     }
 
-    var focusTimer = null;
+    var timer = null;
 
-    function scheduleFocusUpdate() {
+    function requestFocusUpdate() {
 
-        if (focusTimer) return;
+        if (timer) return;
 
-        focusTimer = setTimeout(function () {
+        timer = setTimeout(function () {
 
-            focusTimer = null;
+            timer = null;
 
-            moveFocusFrame();
+            updateFocus();
 
-        }, 40);
+        }, 35);
     }
 
     function activate() {
 
-        injectStyle();
-        createFocusFrame();
-
         document.body.classList.add(
-            'retro-netflix-active'
+            'retro-netflix'
         );
 
-        scheduleFocusUpdate();
+        addStyle();
+
+        createFocus();
+
+        requestFocusUpdate();
     }
 
-    function watchDOM() {
+    function observe() {
 
         if (!window.MutationObserver) return;
 
-        var observer = new MutationObserver(function () {
+        var observer =
+            new MutationObserver(function () {
 
-            scheduleFocusUpdate();
+                requestFocusUpdate();
 
-        });
+            });
 
-        observer.observe(document.body, {
-            subtree: true,
-            childList: true,
-            attributes: true,
-            attributeFilter: ['class']
-        });
+        observer.observe(
+            document.body,
+            {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ['class']
+            }
+        );
 
-        window.__RETRO_NETFLIX_OBSERVER__ = observer;
+        window.__RETRO_NETFLIX_OBSERVER_V2__ =
+            observer;
     }
 
-    function bindLampaEvents() {
+    function bindLampa() {
 
-        /*
-         * Lampa Listener is the preferred event system in 3.x.
-         * We don't replace Controller or keyboard processing.
-         */
-
-        if (Lampa.Listener && Lampa.Listener.follow) {
+        if (
+            Lampa.Listener &&
+            Lampa.Listener.follow
+        ) {
 
             Lampa.Listener.follow(
                 'activity',
                 function () {
-                    scheduleFocusUpdate();
+
+                    requestFocusUpdate();
+
                 }
             );
 
             Lampa.Listener.follow(
                 'state:changed',
                 function () {
-                    scheduleFocusUpdate();
+
+                    requestFocusUpdate();
+
                 }
             );
+
         }
     }
 
     function start() {
 
         activate();
-        watchDOM();
-        bindLampaEvents();
 
-        /*
-         * Low-frequency safety refresh.
-         *
-         * This is deliberately NOT requestAnimationFrame.
-         * We don't run JavaScript 60 times per second.
-         */
+        observe();
 
-        setInterval(function () {
+        bindLampa();
 
-            if (
-                document.body.classList.contains(
-                    'retro-netflix-active'
-                )
-            ) {
-                scheduleFocusUpdate();
-            }
-
-        }, 250);
+        setInterval(
+            requestFocusUpdate,
+            300
+        );
     }
 
-    /*
-     * Wait until Lampa has finished creating its DOM.
-     */
-
-    if (document.readyState === 'loading') {
+    if (
+        document.readyState === 'loading'
+    ) {
 
         document.addEventListener(
             'DOMContentLoaded',
