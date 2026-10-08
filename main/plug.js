@@ -1,8 +1,12 @@
 (function () {
     'use strict';
 
-    if (window.nf_interface_ready) return;
-    window.nf_interface_ready = true;
+    var VERSION = 6;
+    if (window.nf_ui_version && window.nf_ui_version >= VERSION) return;
+    window.nf_ui_version = VERSION;
+
+    // убираем следы старых версий, если они успели загрузиться
+    try { $('#nf-interface-style, #nf-focus, #nf-rail').remove(); } catch (e) { }
 
     // ===================== НАСТРОЙКИ В ЛАМПЕ =====================
     // Раздел «Интерфейс Netflix» появится в Настройки.
@@ -10,6 +14,7 @@
         { name: 'nf_ui_enable', title: 'Включить интерфейс Netflix', desc: 'Главный выключатель. Если выключить, Лампа выглядит как обычно' },
         { name: 'nf_ui_rect', title: 'Прямоугольные постеры и актёры', desc: 'Острые углы у постеров и прямоугольные фото актёров' },
         { name: 'nf_ui_menu', title: 'Красивое меню слева', desc: 'Тёмная панель и плавное выделение пунктов. Размеры меню не меняются' },
+        { name: 'nf_ui_rail', title: 'Узкая полоса значков слева', desc: 'Значки меню всегда на экране, как у Netflix. Название пунктов видно при открытии меню' },
         { name: 'nf_ui_full', title: 'Кнопки столбиком на странице фильма', desc: 'Смотреть, Трейлеры и другие кнопки одна под другой, с белой рамкой' },
         { name: 'nf_ui_frame', title: 'Плавная белая рамка выбора', desc: 'Одна рамка плавно переезжает с постера на постер, как у Netflix' }
     ];
@@ -24,6 +29,7 @@
         $('body')
             .toggleClass('nf-rect', master && on('nf_ui_rect'))
             .toggleClass('nf-menu', master && on('nf_ui_menu'))
+            .toggleClass('nf-rail-on', master && on('nf_ui_rail'))
             .toggleClass('nf-full', master && on('nf_ui_full'))
             .toggleClass('nf-frame', master && on('nf_ui_frame'));
     }
@@ -87,7 +93,22 @@
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico [stroke]{stroke:#fff!important}' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico path[fill],' +
             'body.nf-menu.nf-frame .menu__item.focus .menu__ico rect[fill],' +
-            'body.nf-menu.nf-frame .menu__item.focus .menu__ico circle[fill]{fill:#fff!important}';
+            'body.nf-menu.nf-frame .menu__item.focus .menu__ico circle[fill]{fill:#fff!important}' +
+
+            // --- узкая полоса значков слева ---
+            '#nf-rail{position:fixed;left:0;bottom:0;z-index:20;display:none;flex-direction:column;' +
+            'justify-content:center;align-items:center;background:linear-gradient(to right,rgba(0,0,0,.8),rgba(0,0,0,0))}' +
+            '#nf-rail.show{display:flex}' +
+            'body.menu--open #nf-rail{opacity:0;pointer-events:none}' +
+            '.nf-rail__list{display:flex;flex-direction:column;align-items:center;gap:1.6em}' +
+            '.nf-rail__item{position:relative;width:1.8em;height:1.8em;opacity:.7;cursor:pointer;transition:opacity .2s}' +
+            '.nf-rail__item:hover,.nf-rail__item.active{opacity:1}' +
+            '.nf-rail__item svg{width:100%;height:100%;display:block}' +
+            '.nf-rail__item [stroke]{stroke:#fff}' +
+            '.nf-rail__item path[fill]:not([fill=none]),.nf-rail__item rect[fill]:not([fill=none]),' +
+            '.nf-rail__item circle[fill]:not([fill=none]){fill:#fff}' +
+            '.nf-rail__item.active::after{content:"";position:absolute;left:15%;right:15%;bottom:-.5em;height:.18em;' +
+            'border-radius:1em;background:#e50914}';
         $('body').append('<style id="nf-interface-style">' + css + '</style>');
     }
 
@@ -151,13 +172,133 @@
         })();
     }
 
+    // ===================== УЗКАЯ ПОЛОСА ЗНАЧКОВ СЛЕВА =====================
+    // Полоса рисуется поверх свободного поля слева от контента и ничего не сдвигает.
+    // Клик мышью по значку = нажатие на тот же пункт родного меню. С пульта «влево» открывает родное меню с названиями.
+    var RAIL_ITEMS = [
+        { id: 'search', text: 'Поиск' },
+        { id: 'main', text: 'Главная' },
+        { id: 'movie', text: 'Фильмы' },
+        { id: 'tv', text: 'Сериалы' },
+        { id: 'favorite', text: 'Избранное' },
+        { id: 'catalog', text: 'Каталог' }
+    ];
+    var SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">' +
+        '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
+    var railBuilt = false, railLogged = false;
+
+    function nativeItem(it) {
+        return $('.wrap__left .menu__item').filter(function () {
+            var el = $(this);
+            return el.data('action') === it.id || $.trim(el.find('.menu__text').text()) === it.text;
+        }).first();
+    }
+
+    function buildRail() {
+        if (railBuilt || !$('.wrap__left .menu__item').length) return;
+        var list = $('<div class="nf-rail__list"></div>');
+
+        RAIL_ITEMS.forEach(function (it) {
+            var icon = '', native = null;
+            if (it.id === 'search') {
+                icon = SEARCH_SVG;
+            } else {
+                native = nativeItem(it);
+                if (!native.length) return;
+                icon = native.find('.menu__ico').html();
+            }
+            var btn = $('<div class="nf-rail__item" data-id="' + it.id + '" title="' + it.text + '">' + icon + '</div>');
+            btn.on('click', function () {
+                try {
+                    if (it.id === 'search') {
+                        var head = $('.open--search').first();
+                        if (head.length) head.trigger('hover:enter'); else Lampa.Search.open();
+                    } else {
+                        native.trigger('hover:enter');
+                    }
+                } catch (e) { }
+            });
+            list.append(btn);
+        });
+
+        if (!list.children().length) return;
+        $('body').append($('<div id="nf-rail"></div>').append(list));
+        railBuilt = true;
+    }
+
+    function activeId() {
+        try {
+            var a = Lampa.Activity.active();
+            if (!a) return '';
+            var c = String(a.component || ''), u = String(a.url || '');
+            if (c === 'main') return 'main';
+            if (u === 'movie') return 'movie';
+            if (u === 'tv') return 'tv';
+            if (c.indexOf('favorite') > -1 || c.indexOf('bookmark') > -1) return 'favorite';
+            if (c === 'catalog') return 'catalog';
+        } catch (e) { }
+        return '';
+    }
+
+    var lastGutter = 0;
+
+    function updateRail() {
+        var rail = document.getElementById('nf-rail');
+        var b = document.body;
+        if (!rail) return buildRail();
+
+        if (!b.classList.contains('nf-rail-on') || anyVisible('.player, .selectbox, .modal')) {
+            rail.classList.remove('show');
+            return;
+        }
+
+        // свободное поле слева от контента
+        if (!b.classList.contains('menu--open')) {
+            var left = 99999;
+            ['.wrap__content .items-line__title', '.wrap__content .card', '.wrap__content .full-start__poster',
+                '.wrap__content .full-start-new__poster'].forEach(function (sel) {
+                var n = document.querySelector(sel);
+                if (n) {
+                    var r = n.getBoundingClientRect();
+                    if (r.width > 0 && r.left >= 0 && r.left < left) left = r.left;
+                }
+            });
+            lastGutter = left === 99999 ? 0 : left;
+        }
+
+        var width = Math.min(lastGutter - 8, 80);
+        if (width < 44) {
+            rail.classList.remove('show');
+            if (!railLogged) { railLogged = true; console.log('[NF Interface] rail hidden: not enough free space on the left (' + Math.round(lastGutter) + 'px)'); }
+            return;
+        }
+
+        var head = document.querySelector('.head');
+        rail.style.top = (head ? head.getBoundingClientRect().bottom : 0) + 'px';
+        rail.style.width = width + 'px';
+        rail.classList.add('show');
+
+        var act = activeId();
+        $(rail).find('.nf-rail__item').each(function () {
+            $(this).toggleClass('active', $(this).data('id') === act);
+        });
+    }
+
+    function initRail() {
+        setInterval(function () {
+            try { updateRail(); } catch (e) { }
+        }, 400);
+    }
+
     // ===================== СТАРТ =====================
     function start() {
         registerSettings();
         addStyles();
         initFrame();
+        initRail();
         apply();
-        console.log('[NF Interface] loaded');
+        console.log('[NF Interface] v' + VERSION + ' loaded');
+        try { Lampa.Noty.show('Интерфейс Netflix: версия ' + VERSION + ' загружена'); } catch (e) { }
     }
 
     if (window.appready) start();
