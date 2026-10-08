@@ -1,82 +1,57 @@
 (function () {
     'use strict';
 
-    var manifest = {
-        type: 'other',
-        version: '1.0.0',
-        name: 'Retro Netflix',
-        description: 'Netflix interface for Lampa',
-        component: 'retro_netflix'
-    };
-
-    if (!window.Lampa) {
-        return;
-    }
-
-    function registerManifest() {
-
-        if (!Lampa.Manifest) {
-            Lampa.Manifest = {};
-        }
-
-        if (!Lampa.Manifest.plugins) {
-            Lampa.Manifest.plugins = {};
-        }
-
-        if (Array.isArray(Lampa.Manifest.plugins)) {
-
-            var exists = Lampa.Manifest.plugins.some(function (plugin) {
-                return plugin &&
-                    plugin.component === manifest.component;
-            });
-
-            if (!exists) {
-                Lampa.Manifest.plugins.push(manifest);
-            }
-
-        } else {
-
-            Lampa.Manifest.plugins[manifest.component] =
-                manifest;
-
-        }
-    }
-
     function start() {
 
-        if (window.__RETRO_NETFLIX_STARTED__) {
+        if (!window.Lampa) return;
+
+        if (
+            Lampa.Manifest &&
+            Lampa.Manifest.app_digital &&
+            Lampa.Manifest.app_digital < 300
+        ) {
             return;
         }
 
-        window.__RETRO_NETFLIX_STARTED__ = true;
+        var style = document.createElement('style');
 
-        registerManifest();
+        style.id = 'retro-netflix';
 
-        /*
-         * ЗДЕСЬ БУДЕТ НАШ NETFLIX UI
-         */
-    }
-
-    if (window.appready) {
-
-        start();
-
-    } else if (
-        Lampa.Listener &&
-        Lampa.Listener.follow
-    ) {
-
-        Lampa.Listener.follow(
-            'app',
-            function (event) {
-
-                if (event.type === 'ready') {
-                    start();
-                }
-
+        style.textContent = `
+            body {
+                background: #050505 !important;
             }
-        );
 
+            .main {
+                background: #050505 !important;
+            }
+
+            .activity {
+                background: transparent !important;
+            }
+
+            .card__view {
+                border-radius: 5px !important;
+            }
+        `;
+
+        document.head.appendChild(style);
     }
+
+    if (window.Lampa) {
+        start();
+        return;
+    }
+
+    var timer = setInterval(function () {
+
+        if (window.Lampa) {
+
+            clearInterval(timer);
+
+            start();
+        }
+
+    }, 100);
 
 })();
