@@ -1,21 +1,25 @@
 (function () {
     'use strict';
 
-    var VERSION = 7;
+    var VERSION = 8;
     if (window.nf_ui_version && window.nf_ui_version >= VERSION) return;
     window.nf_ui_version = VERSION;
 
-    // убираем следы старых версий
-    try { $('#nf-interface-style, #nf-focus, #nf-rail').remove(); } catch (e) { }
+    try { if (window.nf_ui_cleanup) window.nf_ui_cleanup(); } catch (e)
+    try { if (window.nf_ui_cleanup_rail) window.nf_ui_cleanup_rail(); } catch (e)
+    try { if (window.nf_ui_cleanup_menu) window.nf_ui_cleanup_menu(); } catch (e)
+    try { if (window.nf_ui_cleanup_frame) window.nf_ui_cleanup_frame(); } catch (e)
+    try { if (window.nf_ui_cleanup_settings) window.nf_ui_cleanup_settings(); } catch (e)
+    try { if (window.nf_ui_cleanup_styles) window.nf_ui_cleanup_styles(); } catch (e)
 
-    // ===================== НАСТРОЙКИ В ЛАМПЕ =====================
+    // ===================== НАСТРОЙКИ =====================
     var PARAMS = [
-        { name: 'nf_ui_enable', title: 'Включить интерфейс Netflix', desc: 'Главный выключатель. Если выключить, Лампа выглядит как обычно' },
-        { name: 'nf_ui_rect', title: 'Прямоугольные постеры и актёры', desc: 'Острые углы у постеров и прямоугольные фото актёров' },
-        { name: 'nf_ui_menu', title: 'Красивое меню слева', desc: 'Тёмная панель и плавное выделение пунктов. Размеры меню не меняются' },
-        { name: 'nf_ui_rail', title: 'Узкая полоса значков слева', desc: 'Значки меню всегда на экране, как у Netflix. Название пунктов видно при открытии меню' },
-        { name: 'nf_ui_full', title: 'Кнопки столбиком на странице фильма', desc: 'Смотреть, Трейлеры и другие кнопки одна под другой, с белой рамкой' },
-        { name: 'nf_ui_frame', title: 'Плавная белая рамка выбора', desc: 'Одна рамка плавно переезжает с постера на постер, как у Netflix' }
+        { name: 'nf_ui_enable', title: 'Включить интерфейс Netflix', desc: 'Главный выключатель' },
+        { name: 'nf_ui_rect',   title: 'Прямоугольные постеры и актёры', desc: 'Острые углы у постеров и фото актёров' },
+        { name: 'nf_ui_menu',   title: 'Меню как в Netflix', desc: 'Тёмная панель, иконки, плавное выделение пунктов' },
+        { name: 'nf_ui_rail',   title: 'Узкая полоса значков слева', desc: 'Значки меню всегда на экране, как у Netflix' },
+        { name: 'nf_ui_full',   title: 'Кнопки столбиком на странице фильма', desc: 'Смотреть, Трейлеры и другие кнопки одна под другой' },
+        { name: 'nf_ui_frame',  title: 'Плавная белая рамка выбора', desc: 'Одна рамка плавно переезжает с постера на постер, как у Netflix' }
     ];
 
     function on(key) {
@@ -25,12 +29,12 @@
 
     function apply() {
         var master = on('nf_ui_enable');
-        $('body')
-            .toggleClass('nf-rect', master && on('nf_ui_rect'))
-            .toggleClass('nf-menu', master && on('nf_ui_menu'))
-            .toggleClass('nf-rail-on', master && on('nf_ui_rail'))
-            .toggleClass('nf-full', master && on('nf_ui_full'))
-            .toggleClass('nf-frame', master && on('nf_ui_frame'));
+        var b = document.body;
+        b.classList.toggle('nf-rect',  master && on('nf_ui_rect'));
+        b.classList.toggle('nf-menu',  master && on('nf_ui_menu'));
+        b.classList.toggle('nf-rail-on', master && on('nf_ui_rail'));
+        b.classList.toggle('nf-full',  master && on('nf_ui_full'));
+        b.classList.toggle('nf-frame', master && on('nf_ui_frame'));
     }
 
     function registerSettings() {
@@ -38,8 +42,7 @@
             Lampa.SettingsApi.addComponent({
                 component: 'nf_ui',
                 name: 'Интерфейс Netflix',
-                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">' +
-                    '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>'
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>'
             });
             PARAMS.forEach(function (p) {
                 Lampa.SettingsApi.addParam({
@@ -49,7 +52,7 @@
                     onChange: function () { apply(); }
                 });
             });
-        } catch (e) { console.log('[NF Interface] settings failed', e); }
+        } catch (e) { console.log(' settings failed', e); }
     }
 
     // ===================== СТИЛИ =====================
@@ -72,13 +75,12 @@
             'body.nf-full .full-start__button.focus{background:rgba(255,255,255,.14)!important;' +
             'outline:.15em solid #fff;outline-offset:-.15em;box-shadow:none!important}' +
 
-            // --- одна общая белая рамка выбора (улучшенная) ---
+            // --- одна общая белая рамка выбора ---
             '#nf-focus{position:fixed;left:0;top:0;z-index:9999;pointer-events:none;opacity:0;' +
             'border:.18em solid #fff;border-radius:0;box-shadow:0 0 1.4em rgba(0,0,0,.6),0 0 0 .05em rgba(255,255,255,.3);' +
             'transition:opacity .12s ease;will-change:transform,width,height;box-sizing:border-box}' +
             '#nf-focus.fly{transition:transform .32s cubic-bezier(.25,.8,.25,1),width .32s cubic-bezier(.25,.8,.25,1),' +
             'height .32s cubic-bezier(.25,.8,.25,1),opacity .12s ease}' +
-            // прячем родные рамки Лампы
             'body.nf-frame .card.focus .card__view::after,' +
             'body.nf-frame .card.focus .card__img::after{border:0!important;box-shadow:none!important;outline:none!important}' +
             'body.nf-frame .selector.focus:not(.full-start__button),' +
@@ -86,17 +88,16 @@
             'body.nf-frame .full-start__button.focus{outline:none!important;box-shadow:none!important}' +
             'body.nf-frame .card.focus{outline:none!important}' +
 
-            // --- красивое меню слева (ближе к Netflix) ---
+            // --- меню как в Netflix ---
             'body.nf-menu .wrap__left{background:linear-gradient(to right,rgba(0,0,0,.96),rgba(0,0,0,.75) 80%,rgba(0,0,0,0))!important}' +
             'body.nf-menu .menu__item{transition:background-color .2s ease,color .2s ease,transform .15s ease;border-radius:.25em;margin:.15em .4em}' +
             'body.nf-menu .menu__text{font-weight:400;letter-spacing:.01em}' +
             'body.nf-menu .menu__item.focus,body.nf-menu .menu__item.hover{background:rgba(255,255,255,.12)!important;color:#fff!important}' +
-            // когда рамка включена — фон пункта прозрачный
             'body.nf-menu.nf-frame .menu__item.focus,body.nf-menu.nf-frame .menu__item.hover{background:transparent!important;color:#fff!important}' +
-            'body.nf-menu.nf-frame .menu__item.focus .menu__ico [stroke]{stroke:#fff!important}' +
-            'body.nf-menu.nf-frame .menu__item.focus .menu__ico path[fill],' +
-            'body.nf-menu.nf-frame .menu__item.focus .menu__ico rect[fill],' +
-            'body.nf-menu.nf-frame .menu__item.focus .menu__ico circle[fill]{fill:#fff!important}' +
+            'body.nf-menu.nf-frame .menu__item.focus .menu__ico {stroke:#fff!important}' +
+            'body.nf-menu.nf-frame .menu__item.focus .menu__ico path ,' +
+            'body.nf-menu.nf-frame .menu__item.focus .menu__ico rect ,' +
+            'body.nf-menu.nf-frame .menu__item.focus .menu__ico circle {fill:#fff!important}' +
             'body.nf-menu .head__profile,body.nf-menu .profile{transition:opacity .2s}' +
             'body.nf-menu .menu__list{padding-top:.5em}' +
 
@@ -109,15 +110,17 @@
             '.nf-rail__item{position:relative;width:1.75em;height:1.75em;opacity:.65;cursor:pointer;transition:opacity .2s,transform .15s}' +
             '.nf-rail__item:hover,.nf-rail__item.active{opacity:1;transform:scale(1.08)}' +
             '.nf-rail__item svg{width:100%;height:100%;display:block}' +
-            '.nf-rail__item [stroke]{stroke:#fff}' +
-            '.nf-rail__item path[fill]:not([fill=none]),.nf-rail__item rect[fill]:not([fill=none]),' +
-            '.nf-rail__item circle[fill]:not([fill=none]){fill:#fff}' +
+            '.nf-rail__item {stroke:#fff}' +
+            '.nf-rail__item path :not([fill=none fill=none]){fill:#fff}' +
             '.nf-rail__item.active::after{content:"";position:absolute;left:18%;right:18%;bottom:-.45em;height:.16em;' +
             'border-radius:1em;background:#e50914}';
-        $('body').append('<style id="nf-interface-style">' + css + '</style>');
+        var st = document.createElement('style');
+        st.id = 'nf-interface-style';
+        st.textContent = css;
+        document.body.appendChild(st);
     }
 
-    // ===================== ПЛАВНАЯ БЕЛАЯ РАМКА ВЫБОРА (ИСПРАВЛЕННАЯ) =====================
+    // ===================== ПЛАВНАЯ БЕЛАЯ РАМКА ВЫБОРА =====================
     var frame, lastEl = null, shown = false, flyTimer, lastRect = null;
 
     function hideFrame() {
@@ -129,9 +132,9 @@
     }
 
     function isVisible(el) {
-        if (!el || !el.getClientRects) return false;
-        var rects = el.getClientRects();
-        if (!rects.length) return false;
+        if (!el || !el.getClientRect) return false;
+        var rects = el.getClientRect();
+        if (!rects || !rects.length) return false;
         var style = window.getComputedStyle(el);
         return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
     }
@@ -146,10 +149,8 @@
         var bestArea = 0;
 
         for (var i = 0; i < candidates.length; i++) {
-            var el = candidates[i];
+            var el = candidates ;
             if (!isVisible(el)) continue;
-
-            // Пропускаем элементы внутри левого меню, если меню закрыто
             if (el.closest && el.closest('.wrap__left') && !document.body.classList.contains('menu--open')) continue;
 
             var target = el;
@@ -243,15 +244,19 @@
     var railBuilt = false, railLogged = false;
 
     function nativeItem(it) {
-        return $('.wrap__left .menu__item').filter(function () {
-            var el = $(this);
-            return el.data('action') === it.id || $.trim(el.find('.menu__text').text()) === it.text;
-        }).first();
+        var items = document.querySelectorAll('.wrap__left .menu__item');
+        for (var i = 0; i < items.length; i++) {
+            var el = items ;
+            var t = el.querySelector('.menu__text');
+            if ((el.dataset && el.dataset.action === it.id) || (t && t.textContent.trim() === it.text)) return el;
+        }
+        return null;
     }
 
     function buildRail() {
-        if (railBuilt || !$('.wrap__left .menu__item').length) return;
-        var list = $('<div class="nf-rail__list"></div>');
+        if (railBuilt || !document.querySelector('.wrap__left .menu__item')) return;
+        var list = document.createElement('div');
+        list.className = 'nf-rail__list';
 
         RAIL_ITEMS.forEach(function (it) {
             var icon = '', native = null;
@@ -259,25 +264,33 @@
                 icon = SEARCH_SVG;
             } else {
                 native = nativeItem(it);
-                if (!native.length) return;
-                icon = native.find('.menu__ico').html();
+                if (!native) return;
+                var ico = native.querySelector('.menu__ico');
+                icon = ico ? ico.innerHTML : '';
             }
-            var btn = $('<div class="nf-rail__item" data-id="' + it.id + '" title="' + it.text + '">' + icon + '</div>');
-            btn.on('click', function () {
+            var btn = document.createElement('div');
+            btn.className = 'nf-rail__item';
+            btn.dataset.id = it.id;
+            btn.title = it.text;
+            btn.innerHTML = icon;
+            btn.addEventListener('click', function () {
                 try {
                     if (it.id === 'search') {
-                        var head = $('.open--search').first();
-                        if (head.length) head.trigger('hover:enter'); else Lampa.Search.open();
-                    } else {
-                        native.trigger('hover:enter');
+                        var head = document.querySelector('.open--search');
+                        if (head) head.click(); else Lampa.Search.open();
+                    } else if (native) {
+                        native.click();
                     }
                 } catch (e) { }
             });
-            list.append(btn);
+            list.appendChild(btn);
         });
 
-        if (!list.children().length) return;
-        $('body').append($('<div id="nf-rail"></div>').append(list));
+        if (!list.children.length) return;
+        var rail = document.createElement('div');
+        rail.id = 'nf-rail';
+        rail.appendChild(list);
+        document.body.appendChild(rail);
         railBuilt = true;
     }
 
@@ -323,7 +336,7 @@
         var width = Math.min(lastGutter - 8, 80);
         if (width < 44) {
             rail.classList.remove('show');
-            if (!railLogged) { railLogged = true; console.log('[NF Interface] rail hidden: not enough free space on the left (' + Math.round(lastGutter) + 'px)'); }
+            if (!railLogged) { railLogged = true; console.log(' rail hidden: not enough free space on the left (' + Math.round(lastGutter) + 'px)'); }
             return;
         }
 
@@ -333,8 +346,8 @@
         rail.classList.add('show');
 
         var act = activeId();
-        $(rail).find('.nf-rail__item').each(function () {
-            $(this).toggleClass('active', $(this).data('id') === act);
+        Array.from(rail.querySelectorAll('.nf-rail__item')).forEach(function (it) {
+            it.classList.toggle('active', it.dataset.id === act);
         });
     }
 
@@ -351,8 +364,8 @@
         initFrame();
         initRail();
         apply();
-        console.log('[NF Interface] v' + VERSION + ' loaded (frame fixed)');
-        try { Lampa.Noty.show('Интерфейс Netflix: версия ' + VERSION + ' (рамка исправлена)'); } catch (e) { }
+        console.log(' v' + VERSION + ' loaded (frame fixed, menu netflix-style, settings cleaned)');
+        try { Lampa.Noty.show('Интерфейс Netflix: версия ' + VERSION); } catch (e) { }
     }
 
     if (window.appready) start();
