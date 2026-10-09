@@ -3,7 +3,7 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 3;
+    var VERSION = 5;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
@@ -46,10 +46,14 @@
             'content:"";position:absolute;left:12%;right:12%;bottom:-.3em;height:.16em;border-radius:1em;background:#e50914}' +
             'body.nf-menu2 .menu__item.nf-current{color:#d6d6d6!important}' +
 
-            // ширина меню: реально растягиваем панель, а не увеличиваем картинку, поэтому качество не теряется
-            'body.nf-menu-w1 .wrap__left{min-width:19em!important}' +
-            'body.nf-menu-w2 .wrap__left{min-width:23em!important}' +
-            'body.nf-menu-w1 .wrap__left .scroll,body.nf-menu-w2 .wrap__left .scroll{width:100%}';
+            // ширина меню: реальный размер меню не меняем (Лампа считает по нему положение постеров),
+            // а тёмная панель визуально растягивается вправо за его границу
+            'body.nf-menu-w1 .wrap__left,body.nf-menu-w2 .wrap__left{overflow:visible!important}' +
+            'body.nf-menu-w1 .wrap__left::before,body.nf-menu-w2 .wrap__left::before{content:"";position:absolute;' +
+            'top:0;bottom:0;left:0;z-index:-1;pointer-events:none;' +
+            'background:linear-gradient(90deg,rgba(0,0,0,.98) 0%,rgba(0,0,0,.94) 70%,rgba(0,0,0,0) 100%)}' +
+            'body.nf-menu-w1 .wrap__left::before{width:21em}' +
+            'body.nf-menu-w2 .wrap__left::before{width:26em}';
 
         var style = document.createElement('style');
         style.id = STYLE_ID;
@@ -80,7 +84,29 @@
         });
     }
 
-    // ----- строка «Профиль» сверху, как в Netflix -----
+    // ----- пункт «Поиск» первым в меню -----
+    var ICON_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+        '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
+
+    function addSearch() {
+        if ($('.nf-search-item').length) return;
+        var list = $('.wrap__left .menu__list').first();
+        if (!list.length || !list.children().length) return;
+
+        var li = $('<li class="menu__item selector nf-search-item" data-action="nf_search">' +
+            '<div class="menu__ico">' + ICON_SEARCH + '</div>' +
+            '<div class="menu__text">Поиск</div></li>');
+        li.on('hover:enter', function () {
+            try {
+                var headBtn = $('.open--search').first();
+                if (headBtn.length) headBtn.trigger('hover:enter');
+                else Lampa.Search.open();
+            } catch (e) { }
+        });
+        list.prepend(li);
+    }
+
+    // ----- строка «Профиль» (в конце меню) -----
     function addProfile() {
         if ($('.nf-profile-item').length) return;
         var list = $('.wrap__left .menu__list').first();
@@ -93,7 +119,7 @@
         li.on('hover:enter', function () {
             try { $('.open--profile').first().trigger('hover:enter'); } catch (e) { }
         });
-        list.prepend(li);
+        list.append(li);
     }
 
     // ----- авто-открытие раздела при выборе в меню (без нажатия «ОК») -----
@@ -125,7 +151,7 @@
             Lampa.SettingsApi.addParam({
                 component: 'nf_menu',
                 param: { name: 'nf_menu_width', type: 'select', values: { '0': 'Обычная', '1': 'Чуть шире', '2': 'Широкая' }, 'default': '1' },
-                field: { name: 'Ширина меню', description: 'Меню растягивается вправо, текст остаётся чётким' },
+                field: { name: 'Ширина меню', description: 'Тёмная панель меню растягивается вправо, постеры на экране не двигаются' },
                 onChange: function () { applyWidth(); }
             });
         } catch (e) { }
@@ -185,9 +211,14 @@
         // меню Лампа строит не сразу, поэтому пробуем несколько раз
         var tries = 0;
         var timer = setInterval(function () {
+            addSearch();
             addProfile();
             markCurrent();
-            if (++tries > 20) clearInterval(timer);
+            if (++tries > 20) {
+                clearInterval(timer);
+                // если Лампа перестроит меню позже, пункты вернутся
+                setInterval(function () { addSearch(); addProfile(); }, 2000);
+            }
         }, 500);
 
         console.log('[NF Menu] v' + VERSION + ' loaded');
