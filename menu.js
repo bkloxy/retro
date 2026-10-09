@@ -3,7 +3,7 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 2;
+    var VERSION = 3;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
@@ -44,7 +44,12 @@
             'body.nf-menu2 .menu__item.focus .menu__text{font-weight:800}' +
             'body.nf-menu2 .menu__item.focus .menu__ico::after,body.nf-menu2 .menu__item.nf-current .menu__ico::after{' +
             'content:"";position:absolute;left:12%;right:12%;bottom:-.3em;height:.16em;border-radius:1em;background:#e50914}' +
-            'body.nf-menu2 .menu__item.nf-current{color:#d6d6d6!important}';
+            'body.nf-menu2 .menu__item.nf-current{color:#d6d6d6!important}' +
+
+            // ширина меню: реально растягиваем панель, а не увеличиваем картинку, поэтому качество не теряется
+            'body.nf-menu-w1 .wrap__left{min-width:19em!important}' +
+            'body.nf-menu-w2 .wrap__left{min-width:23em!important}' +
+            'body.nf-menu-w1 .wrap__left .scroll,body.nf-menu-w2 .wrap__left .scroll{width:100%}';
 
         var style = document.createElement('style');
         style.id = STYLE_ID;
@@ -117,7 +122,19 @@
                     description: 'Задержался на пункте меню на полсекунды, и раздел открывается без нажатия «ОК»'
                 }
             });
+            Lampa.SettingsApi.addParam({
+                component: 'nf_menu',
+                param: { name: 'nf_menu_width', type: 'select', values: { '0': 'Обычная', '1': 'Чуть шире', '2': 'Широкая' }, 'default': '1' },
+                field: { name: 'Ширина меню', description: 'Меню растягивается вправо, текст остаётся чётким' },
+                onChange: function () { applyWidth(); }
+            });
         } catch (e) { }
+    }
+
+    function applyWidth() {
+        var v = String(Lampa.Storage.get('nf_menu_width', '1'));
+        document.body.classList.toggle('nf-menu-w1', v === '1');
+        document.body.classList.toggle('nf-menu-w2', v === '2');
     }
 
     function isSafeItem(el) {
@@ -149,6 +166,7 @@
     function start() {
         injectStyle();
         registerSettings();
+        applyWidth();
         bindAutoOpen();
         document.body.classList.add('nf-menu2');
 
