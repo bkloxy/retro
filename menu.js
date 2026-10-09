@@ -3,7 +3,7 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 1;
+    var VERSION = 2;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
@@ -91,13 +91,76 @@
         list.prepend(li);
     }
 
+    // ----- авто-открытие раздела при выборе в меню (без нажатия «ОК») -----
+    var AUTO_DELAY = 600; // сколько миллисекунд нужно задержаться на пункте, чтобы раздел открылся
+    var SAFE_ACTIONS = ['main', 'feed', 'movie', 'tv', 'anime', 'catalog', 'favorite', 'persons', 'relise', 'history', 'subscribes', 'cartoons'];
+    var SAFE_TEXTS = ['Главная', 'Лента', 'Фильмы', 'Мультфильмы', 'Сериалы', 'Персоны', 'Каталог', 'Релизы', 'Избранное', 'Аниме', 'История'];
+    var autoTimer = null, initialSeen = false, wasOpen = false;
+
+    function autoOn() {
+        var v = Lampa.Storage.get('nf_menu_auto', 'true');
+        return v === true || v === 'true';
+    }
+
+    function registerSettings() {
+        try {
+            Lampa.SettingsApi.addComponent({
+                component: 'nf_menu',
+                name: 'Меню Netflix',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>'
+            });
+            Lampa.SettingsApi.addParam({
+                component: 'nf_menu',
+                param: { name: 'nf_menu_auto', type: 'trigger', 'default': true },
+                field: {
+                    name: 'Открывать раздел сразу при выборе',
+                    description: 'Задержался на пункте меню на полсекунды, и раздел открывается без нажатия «ОК»'
+                }
+            });
+        } catch (e) { }
+    }
+
+    function isSafeItem(el) {
+        var a = el.data('action');
+        var t = $.trim(el.find('.menu__text').text());
+        return SAFE_ACTIONS.indexOf(a) > -1 || SAFE_TEXTS.indexOf(t) > -1;
+    }
+
+    function bindAutoOpen() {
+        $(document).on('hover:focus', '.menu__item', function () {
+            if (!autoOn() || !document.body.classList.contains('menu--open')) return;
+            var el = $(this);
+
+            // первый выбор после открытия меню это текущий раздел, его не открываем повторно
+            if (!initialSeen) { initialSeen = true; return; }
+
+            clearTimeout(autoTimer);
+            if (!isSafeItem(el)) return;
+            if (el.data('action') === currentAction()) return;
+
+            autoTimer = setTimeout(function () {
+                if (el.hasClass('focus') && document.body.classList.contains('menu--open')) {
+                    el.trigger('hover:enter');
+                }
+            }, AUTO_DELAY);
+        });
+    }
+
     function start() {
         injectStyle();
+        registerSettings();
+        bindAutoOpen();
         document.body.classList.add('nf-menu2');
 
         // при открытии и закрытии меню обновляем отметку текущего раздела
         if (window.MutationObserver) {
-            new MutationObserver(function () { markCurrent(); })
+            new MutationObserver(function () {
+                var open = document.body.classList.contains('menu--open');
+                if (open && !wasOpen) initialSeen = false;
+                if (!open) clearTimeout(autoTimer);
+                wasOpen = open;
+                markCurrent();
+            })
                 .observe(document.body, { attributes: true, attributeFilter: ['class'] });
         }
 
