@@ -3,7 +3,7 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 6;
+    var VERSION = 7;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
@@ -168,10 +168,10 @@
     }
 
     // ----- авто-открытие раздела при выборе в меню (без нажатия «ОК») -----
-    var AUTO_DELAY = 600; // сколько миллисекунд нужно задержаться на пункте, чтобы раздел открылся
-    var SAFE_ACTIONS = ['main', 'feed', 'movie', 'tv', 'anime', 'catalog', 'favorite', 'persons', 'relise', 'history', 'subscribes', 'cartoons'];
-    var SAFE_TEXTS = ['Главная', 'Лента', 'Фильмы', 'Мультфильмы', 'Сериалы', 'Персоны', 'Каталог', 'Релизы', 'Избранное', 'Аниме', 'История'];
+    var SAFE_ACTIONS = ['main', 'feed', 'movie', 'cartoon', 'tv', 'myperson', 'relise', 'anime', 'favorite', 'history', 'subscribes', 'timetable', 'mytorrents'];
+    var SAFE_TEXTS = ['Главная', 'Лента', 'Фильмы', 'Мультфильмы', 'Сериалы', 'Персоны', 'Релизы', 'Аниме', 'Избранное', 'История', 'Подписки', 'Расписание', 'Торренты'];
     var autoTimer = null, initialSeen = false, wasOpen = false;
+    var keepTimer = null, ignoreUntil = 0, lastAutoEl = null;
 
     function autoOn() {
         var v = Lampa.Storage.get('nf_menu_auto', 'true');
@@ -195,6 +195,22 @@
             });
             Lampa.SettingsApi.addParam({
                 component: 'nf_menu',
+                param: { name: 'nf_menu_keep', type: 'trigger', 'default': true },
+                field: {
+                    name: 'Оставаться в меню при переключении',
+                    description: 'Листай меню вверх и вниз, разделы меняются сами. Нажимать «ОК» или «вправо» не нужно'
+                }
+            });
+            Lampa.SettingsApi.addParam({
+                component: 'nf_menu',
+                param: { name: 'nf_menu_delay', type: 'select', values: { '250': 'Очень быстро', '400': 'Быстро', '700': 'Не спеша' }, 'default': '400' },
+                field: {
+                    name: 'Скорость переключения',
+                    description: 'Сколько нужно задержаться на пункте меню, чтобы раздел открылся'
+                }
+            });
+            Lampa.SettingsApi.addParam({
+                component: 'nf_menu',
                 param: { name: 'nf_menu_width', type: 'select', values: { '0': 'Обычная', '1': 'Чуть шире', '2': 'Широкая' }, 'default': '1' },
                 field: { name: 'Ширина меню', description: 'Тёмная панель меню растягивается вправо, постеры на экране не двигаются' },
                 onChange: function () { applyWidth(); }
@@ -214,10 +230,44 @@
         return SAFE_ACTIONS.indexOf(a) > -1 || SAFE_TEXTS.indexOf(t) > -1;
     }
 
+    function keepOn() {
+        var v = Lampa.Storage.get('nf_menu_keep', 'true');
+        return v === true || v === 'true';
+    }
+
+    function delayMs() {
+        var d = parseInt(Lampa.Storage.get('nf_menu_delay', '400'), 10);
+        return isFinite(d) ? d : 400;
+    }
+
+    function stopKeep() {
+        if (keepTimer) { clearInterval(keepTimer); keepTimer = null; }
+    }
+
+    // после открытия раздела Лампа сама переводит выбор на содержимое, поэтому несколько секунд возвращаем его в меню
+    function startKeep() {
+        stopKeep();
+        var until = Date.now() + 3000;
+        keepTimer = setInterval(function () {
+            if (Date.now() > until) return stopKeep();
+            try {
+                if (!document.body.classList.contains('menu--open')) Lampa.Controller.toggle('menu');
+            } catch (e) { }
+        }, 150);
+    }
+
     function bindAutoOpen() {
+        // если человек сам нажал «вправо», «ОК» или «назад», выбор в меню больше не возвращаем
+        document.addEventListener('keydown', function (e) {
+            if ([39, 13, 8, 27, 4, 461, 10009].indexOf(e.keyCode) > -1) stopKeep();
+        }, true);
+
         $(document).on('hover:focus', '.menu__item', function () {
             if (!autoOn() || !document.body.classList.contains('menu--open')) return;
             var el = $(this);
+
+            // повторный выбор того же пункта сразу после его открытия пропускаем
+            if (el[0] === lastAutoEl && Date.now() < ignoreUntil) return;
 
             // первый выбор после открытия меню это текущий раздел, его не открываем повторно
             if (!initialSeen) { initialSeen = true; return; }
@@ -227,10 +277,17 @@
             if (el.data('action') === currentAction()) return;
 
             autoTimer = setTimeout(function () {
-                if (el.hasClass('focus') && document.body.classList.contains('menu--open')) {
-                    el.trigger('hover:enter');
+                if (!(el.hasClass('focus') && document.body.classList.contains('menu--open'))) return;
+                lastAutoEl = el[0];
+                ignoreUntil = Date.now() + 1500;
+                el.trigger('hover:enter');
+                if (keepOn()) {
+                    setTimeout(function () {
+                        try { Lampa.Controller.toggle('menu'); } catch (e) { }
+                        startKeep();
+                    }, 120);
                 }
-            }, AUTO_DELAY);
+            }, delayMs());
         });
     }
 
