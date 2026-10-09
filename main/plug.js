@@ -1,407 +1,179 @@
 (function () {
     'use strict';
 
+    if (!window.Lampa) return;
+
+    var VERSION = 2;
+    if (window.retro_nf_version && window.retro_nf_version >= VERSION) return;
+    window.retro_nf_version = VERSION;
+
     /*
-     * RETRO — NATIVE LAMPA PLAYER SKIN
+     * RETRO / NETFLIX для Лампы, версия 2
      *
-     * ВАЖНО:
-     * Не создаём второй плеер.
-     * Не создаём второй <video>.
-     * Не перехватываем клавиатуру.
-     * Работаем только с родным интерфейсом Lampa.
+     * Что исправлено относительно первой версии:
+     *  - постеры снова вертикальные: размеры карточек Лампа считает сама, мы их не трогаем
+     *  - карточки больше не наезжают друг на друга (раньше им задавалась ширина в vw)
+     *  - убрана тяжёлая слежка за всей страницей: рамка обновляется только при выборе и прокрутке
+     *  - рамка двигается через transform (быстро), а не через left/top
+     *  - убрана проверка версии Лампы, из-за которой плагин мог молча не запускаться
      */
 
-    if (window.retro_native_player_ready) return;
-    window.retro_native_player_ready = true;
-
-    // =========================================================
-    // Удаляем старую версию нашего экспериментального плеера,
-    // если она каким-то образом осталась в текущей странице.
-    // =========================================================
-
-    function removeOldPlayer() {
-        try {
-            $('#nf-custom-player').remove();
-            $('#nf-custom-player-style').remove();
-
-            // Старые обработчики нашей предыдущей версии
-            $(window).off('.nfplayer');
-            $(document).off('.nfplayer');
-        } catch (e) {}
-    }
-
-    removeOldPlayer();
-
-    // =========================================================
-    // CSS
-    // =========================================================
-
-    function installStyle() {
-        if ($('#retro-native-player-style').length) return;
-
-        var css = `
-
-        /* =====================================================
-           ОСНОВА
-           ===================================================== */
-
-        .player.retro-native-player {
-            background: #000 !important;
-        }
-
-        /* =====================================================
-           ВЕРХНЯЯ ЧАСТЬ
-           ===================================================== */
-
-        .retro-native-player .player-info {
-            pointer-events: none;
-        }
-
-        /*
-         * Оставляем ОДНУ родную кнопку назад.
-         * Никакой второй кнопки нашего плеера здесь нет.
-         */
-
-        .retro-native-player .player-info .head-backward {
-            pointer-events: auto !important;
-            z-index: 20;
-        }
-
-        .retro-native-player .player-info .head-backward__button,
-        .retro-native-player .player-info .head-backward {
-            transition:
-                transform .18s ease,
-                opacity .18s ease;
-        }
-
-        .retro-native-player .player-info .head-backward:hover {
-            transform: scale(1.06);
-        }
-
-        /*
-         * Родное название Lampa переносим вправо.
-         * Благодаря этому второго названия больше нет.
-         */
-
-        .retro-native-player .player-info__title {
-            position: absolute !important;
-
-            top: 0.65em !important;
-            right: 2.0em !important;
-            left: auto !important;
-
-            width: auto !important;
-            max-width: 58% !important;
-
-            text-align: right !important;
-
-            font-size: 1.65em !important;
-            font-weight: 650 !important;
-            line-height: 1.25 !important;
-
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-
-            text-shadow:
-                0 2px 10px rgba(0,0,0,.85),
-                0 1px 3px rgba(0,0,0,.9) !important;
-        }
-
-        /*
-         * Техническое имя файла/источника не дублируем.
-         */
-
-        .retro-native-player .player-info__name {
-            display: none !important;
-        }
-
-        /*
-         * Время оставляем справа ниже названия.
-         */
-
-        .retro-native-player .player-info__time {
-            top: 2.65em !important;
-            right: 2.0em !important;
-        }
-
-        .retro-native-player .player-info__time-end {
-            top: 4.35em !important;
-            right: 2.0em !important;
-        }
-
-        /* =====================================================
-           НИЖНЯЯ ПАНЕЛЬ
-           ===================================================== */
-
-        .retro-native-player .player-panel {
-            z-index: 30 !important;
-        }
-
-        .retro-native-player .player-panel__body {
-            padding-left: 3.0em !important;
-            padding-right: 3.0em !important;
-            padding-bottom: 1.65em !important;
-        }
-
-        /*
-         * Шкала — тонкая, Netflix-подобная.
-         */
-
-        .retro-native-player .player-panel__timeline {
-            height: .28em !important;
-            border-radius: 10px !important;
-
-            background: rgba(255,255,255,.35) !important;
-
-            margin-bottom: .85em !important;
-
-            transition:
-                height .15s ease,
-                box-shadow .15s ease !important;
-        }
-
-        .retro-native-player .player-panel__timeline:hover,
-        .retro-native-player .player-panel__timeline.focus {
-            height: .42em !important;
-        }
-
-        .retro-native-player .player-panel__position {
-            background: #e50914 !important;
-            border-radius: 10px !important;
-        }
-
-        .retro-native-player .player-panel__peding {
-            background: rgba(255,255,255,.28) !important;
-            border-radius: 10px !important;
-        }
-
-        /* =====================================================
-           ВРЕМЯ
-           ===================================================== */
-
-        .retro-native-player .player-panel__line-one {
-            margin-bottom: .35em !important;
-        }
-
-        .retro-native-player .player-panel__timenow,
-        .retro-native-player .player-panel__timeend {
-            font-size: 1em !important;
-            font-weight: 500 !important;
-            text-shadow: 0 2px 6px rgba(0,0,0,.8) !important;
-        }
-
-        /* =====================================================
-           ОСНОВНЫЕ КНОПКИ
-           ===================================================== */
-
-        .retro-native-player .player-panel__line-two {
-            align-items: center !important;
-        }
-
-        .retro-native-player .player-panel .button {
-            transition:
-                transform .16s ease,
-                background-color .16s ease,
-                color .16s ease !important;
-        }
-
-        .retro-native-player .player-panel .button.focus,
-        .retro-native-player .player-panel .button:hover {
-            transform: scale(1.08);
-        }
-
-        /*
-         * Родная Play/Pause.
-         */
-
-        .retro-native-player .player-panel__playpause {
-            width: 3.25em !important;
-            height: 3.25em !important;
-
-            border-radius: 50% !important;
-
-            background: #fff !important;
-            color: #000 !important;
-
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-
-            box-shadow: 0 2px 14px rgba(0,0,0,.35);
-        }
-
-        .retro-native-player .player-panel__playpause.focus,
-        .retro-native-player .player-panel__playpause:hover {
-            background: #fff !important;
-            color: #000 !important;
-            transform: scale(1.09) !important;
-        }
-
-        /* =====================================================
-           ПЕРЕВОД / СУБТИТРЫ / АУДИО
-           ===================================================== */
-
-        /*
-         * Вот именно эти три элемента опускаем.
-         */
-
-        .retro-native-player .player-panel__flow,
-        .retro-native-player .player-panel__subs,
-        .retro-native-player .player-panel__tracks {
-            transform: translateY(.55em) !important;
-        }
-
-        .retro-native-player .player-panel__flow:hover,
-        .retro-native-player .player-panel__subs:hover,
-        .retro-native-player .player-panel__tracks:hover,
-
-        .retro-native-player .player-panel__flow.focus,
-        .retro-native-player .player-panel__subs.focus,
-        .retro-native-player .player-panel__tracks.focus {
-            transform: translateY(.55em) scale(1.06) !important;
-        }
-
-        /*
-         * Делаем их похожими на Netflix-пилюли.
-         */
-
-        .retro-native-player .player-panel__flow,
-        .retro-native-player .player-panel__subs,
-        .retro-native-player .player-panel__tracks {
-            min-height: 2.45em !important;
-
-            padding-left: .9em !important;
-            padding-right: .9em !important;
-
-            border-radius: 1.5em !important;
-
-            background: rgba(35,35,35,.88) !important;
-            border: 1px solid rgba(255,255,255,.15) !important;
-
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-        }
-
-        /* =====================================================
-           НАСТРОЙКИ / FULLSCREEN / QUALITY
-           ===================================================== */
-
-        .retro-native-player .player-panel__settings,
-        .retro-native-player .player-panel__fullscreen,
-        .retro-native-player .player-panel__quality {
-            border-radius: 50% !important;
-        }
-
-        /* =====================================================
-           ВОЗВРАТ В НАЧАЛО
-           ===================================================== */
-
-        /*
-         * Это родной Lampa tstart.
-         * Не создаём отдельную кнопку.
-         */
-
-        .retro-native-player .player-panel__tstart {
-            opacity: .9 !important;
-        }
-
-        .retro-native-player .player-panel__tstart:hover,
-        .retro-native-player .player-panel__tstart.focus {
-            opacity: 1 !important;
-            transform: scale(1.08) !important;
-        }
-
-        /* =====================================================
-           РОДНОЙ ЦЕНТРАЛЬНЫЙ PLAY/PAUSE
-           ===================================================== */
-
-        .retro-native-player .player-video__paused {
-            background: rgba(0,0,0,.45) !important;
-            border-radius: 50% !important;
-
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
-        }
-
-        /* =====================================================
-           СКРЫВАЕМ НЕНУЖНЫЕ ДУБЛИ, НО НЕ ТРОГАЕМ VIDEO
-           ===================================================== */
-
-        /*
-         * Никаких display:none для .player-panel,
-         * .player-video или самого video.
-         *
-         * Нативный Lampa Player должен продолжать работать.
-         */
-
-        `;
-
-        $('head').append(
-            '<style id="retro-native-player-style">' +
-            css +
-            '</style>'
-        );
-    }
-
-    // =========================================================
-    // Применение класса к НАТИВНОМУ player
-    // =========================================================
-
-    function decorate() {
-        installStyle();
-
-        var player = $('.player');
-
-        if (!player.length) return;
-
-        player.addClass('retro-native-player');
-
-        /*
-         * Если старая версия интерфейса каким-то образом
-         * ещё существует — уничтожаем её.
-         */
-
-        $('#nf-custom-player').remove();
-    }
-
-    // =========================================================
-    // PLAYER START
-    // =========================================================
-
-    function init() {
-        installStyle();
-
-        Lampa.Listener.follow('player', function (e) {
-
-            if (e.type === 'start') {
-                setTimeout(decorate, 0);
-                setTimeout(decorate, 250);
-                setTimeout(decorate, 700);
-            }
-
-            if (e.type === 'destroy' || e.type === 'close') {
-                $('.player').removeClass('retro-native-player');
-            }
+    // ---------- убираем следы первой версии ----------
+    try {
+        ['retro-netflix-style', 'retro-netflix-focus'].forEach(function (id) {
+            var e = document.getElementById(id);
+            if (e) e.remove();
         });
+        if (window.__RETRO_NETFLIX_OBSERVER__) window.__RETRO_NETFLIX_OBSERVER__.disconnect();
+        document.body.classList.remove('retro-netflix-active');
+    } catch (e) { }
 
-        /*
-         * На случай динамического создания DOM.
-         */
+    var STYLE_ID = 'retro-nf2-style';
+    var FRAME_ID = 'retro-nf2-frame';
 
-        setInterval(function () {
-            if (Lampa.Player && Lampa.Player.opened) {
-                decorate();
-            }
-        }, 1000);
+    // ---------- стили ----------
+    function injectStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+
+        var style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = '' +
+            'body.retro-nf2{background:#050505!important}' +
+
+            // левое меню
+            'body.retro-nf2 .wrap__left{background:linear-gradient(90deg,rgba(0,0,0,.98) 0%,rgba(0,0,0,.92) 72%,rgba(0,0,0,0) 100%)!important;border:0!important}' +
+            'body.retro-nf2 .menu__item{transition:background .18s ease,color .18s ease}' +
+            'body.retro-nf2 .menu__item .menu__ico{opacity:.75}' +
+            'body.retro-nf2 .menu__item.focus .menu__ico{opacity:1}' +
+
+            // верхняя панель
+            'body.retro-nf2 .head{background:linear-gradient(180deg,rgba(0,0,0,.96) 0%,rgba(0,0,0,.72) 65%,rgba(0,0,0,0) 100%)!important;border:0!important;box-shadow:none!important}' +
+
+            // заголовки рядов
+            'body.retro-nf2 .items-line__title{color:#fff!important;font-weight:700!important;letter-spacing:-.2px}' +
+
+            // карточки: только оформление, размеры не трогаем, поэтому постеры вертикальные и не наезжают друг на друга
+            'body.retro-nf2 .card__view,body.retro-nf2 .card__img{border-radius:0!important}' +
+            'body.retro-nf2 .card__view{background:#111!important;overflow:hidden}' +
+            'body.retro-nf2 .card.focus{z-index:2}' +
+            'body.retro-nf2 .card__title{color:#fff!important;font-weight:600!important}' +
+            'body.retro-nf2 .card__vote{border-radius:0!important}' +
+
+            // родную рамку Лампы прячем: вместо неё одна общая рамка, которая плавно переезжает
+            'body.retro-nf2 .card.focus .card__view::after{border:0!important;box-shadow:none!important}' +
+
+            // кнопки
+            'body.retro-nf2 .button,body.retro-nf2 .selector{border-radius:4px}' +
+
+            // страница фильма
+            'body.retro-nf2 .full-start__background{opacity:.48!important}' +
+            'body.retro-nf2 .full-start__poster{border-radius:0!important;overflow:hidden;box-shadow:0 15px 45px rgba(0,0,0,.6)}' +
+            'body.retro-nf2 .full-start__buttons .button{background:#fff!important;color:#000!important}' +
+            'body.retro-nf2 .full-start__buttons .button.focus{background:#e50914!important;color:#fff!important}' +
+
+            // общая рамка выбора
+            '#' + FRAME_ID + '{position:fixed;left:0;top:0;z-index:50;pointer-events:none;opacity:0;box-sizing:border-box;' +
+            'border:3px solid #fff;border-radius:0;box-shadow:0 8px 28px rgba(0,0,0,.6);will-change:transform,width,height;' +
+            'transition:opacity .12s ease}' +
+            '#' + FRAME_ID + '.glide{transition:transform .24s cubic-bezier(.2,.8,.2,1),width .24s cubic-bezier(.2,.8,.2,1),' +
+            'height .24s cubic-bezier(.2,.8,.2,1),opacity .12s ease}' +
+            '@media (pointer:coarse){#' + FRAME_ID + '{display:none}}';
+
+        document.head.appendChild(style);
     }
 
-    if (window.appready) {
-        init();
-    } else {
+    // ---------- плавная рамка ----------
+    var frame, lastEl = null, shown = false, glideTimer = null;
+    var rafId = 0, trackUntil = 0;
+
+    function anyVisible(sel) {
+        var n = document.querySelectorAll(sel);
+        for (var i = 0; i < n.length; i++) {
+            if (n[i].getClientRects().length && getComputedStyle(n[i]).visibility !== 'hidden') return true;
+        }
+        return false;
+    }
+
+    function hideFrame() {
+        frame.style.opacity = '0';
+        shown = false;
+        lastEl = null;
+    }
+
+    function updateFrame() {
+        if (anyVisible('.player, .selectbox, .modal')) return hideFrame();
+
+        var card = document.querySelector('.wrap .card.focus');
+        var target = card && card.querySelector('.card__view');
+        if (!target) return hideFrame();
+
+        var r = target.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > window.innerHeight) return hideFrame();
+
+        if (card !== lastEl) {
+            lastEl = card;
+            if (shown) {
+                frame.classList.add('glide');
+                clearTimeout(glideTimer);
+                glideTimer = setTimeout(function () { frame.classList.remove('glide'); }, 380);
+            } else {
+                frame.classList.remove('glide');
+            }
+        }
+
+        frame.style.width = r.width + 'px';
+        frame.style.height = r.height + 'px';
+        frame.style.transform = 'translate3d(' + r.left + 'px,' + r.top + 'px,0)';
+        frame.style.opacity = '1';
+        shown = true;
+    }
+
+    // рамка обновляется каждый кадр только короткое время после выбора или прокрутки
+    function track(ms) {
+        trackUntil = Math.max(trackUntil, performance.now() + ms);
+        if (!rafId) rafId = requestAnimationFrame(loop);
+    }
+
+    function loop() {
+        rafId = 0;
+        try { updateFrame(); } catch (e) { }
+        if (performance.now() < trackUntil) rafId = requestAnimationFrame(loop);
+    }
+
+    function createFrame() {
+        if (document.getElementById(FRAME_ID)) return;
+        frame = document.createElement('div');
+        frame.id = FRAME_ID;
+        document.body.appendChild(frame);
+    }
+
+    // ---------- запуск ----------
+    function start() {
+        injectStyle();
+        createFrame();
+        document.body.classList.add('retro-nf2');
+
+        // Лампа сообщает о выборе элемента событием hover:focus
+        if (window.$) $(document).on('hover:focus', function () { track(550); });
+
+        // прокрутка (в том числе колесом мыши) и смена экрана
+        document.addEventListener('scroll', function () { track(300); }, { capture: true, passive: true });
+        document.addEventListener('wheel', function () { track(400); }, { passive: true });
+        window.addEventListener('resize', function () { track(300); });
+        Lampa.Listener.follow('activity', function () { track(800); });
+
+        // редкая страховка, если какое-то событие не пришло
+        setInterval(function () { track(60); }, 700);
+
+        track(600);
+        console.log('[Retro Netflix] v' + VERSION + ' loaded');
+        try { Lampa.Noty.show('Retro Netflix: версия ' + VERSION + ' загружена'); } catch (e) { }
+    }
+
+    if (window.appready) start();
+    else {
         Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') init();
+            if (e.type === 'ready') start();
         });
     }
-
 })();
