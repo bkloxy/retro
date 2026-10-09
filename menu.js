@@ -3,14 +3,14 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 8; // поднял версию
+    var VERSION = 9;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
     /*
-     * Меню слева в стиле Netflix.
-     * Теперь при листании пунктов меню раздел открывается сразу,
-     * а само меню остаётся открытым, пока ты сам не нажмёшь вправо/ОК.
+     * Меню Netflix-style для Lampa
+     * v9: меню НЕ закрывается при переключении разделов.
+     * Закрывается только по нажатию ВПРАВО или ОК.
      */
 
     var STYLE_ID = 'nf-menu-style';
@@ -155,17 +155,18 @@
         list.append(li);
     }
 
-    // ========== УСИЛЕННОЕ УДЕРЖАНИЕ МЕНЮ ==========
+    // ========== ЖЁСТКОЕ УДЕРЖАНИЕ МЕНЮ ==========
     var SAFE_ACTIONS = ['main', 'feed', 'movie', 'cartoon', 'tv', 'myperson', 'relise', 'anime', 'favorite', 'history', 'subscribes', 'timetable', 'mytorrents'];
     var SAFE_TEXTS = ['Главная', 'Лента', 'Фильмы', 'Мультфильмы', 'Сериалы', 'Персоны', 'Релизы', 'Аниме', 'Избранное', 'История', 'Подписки', 'Расписание', 'Торренты'];
-    
+
     var autoTimer = null;
     var initialSeen = false;
     var wasOpen = false;
     var keepTimer = null;
     var ignoreUntil = 0;
     var lastAutoEl = null;
-    var userForcedClose = false; // пользователь сам нажал вправо/ОК
+    var userForcedClose = false;
+    var keepActive = false;
 
     function autoOn() {
         var v = Lampa.Storage.get('nf_menu_auto', 'true');
@@ -189,36 +190,51 @@
     }
 
     function stopKeep() {
+        keepActive = false;
         if (keepTimer) {
             clearInterval(keepTimer);
             keepTimer = null;
         }
     }
 
-    // Сильно держим меню открытым + возвращаем фокус на пункт
+    // Очень агрессивное удержание меню
     function startKeep(el) {
         stopKeep();
+        if (!keepOn()) return;
+
+        keepActive = true;
         userForcedClose = false;
 
         var tries = 0;
         keepTimer = setInterval(function () {
-            if (userForcedClose) return stopKeep();
+            if (userForcedClose || !keepActive) {
+                stopKeep();
+                return;
+            }
 
             tries++;
-            if (tries > 40) return stopKeep(); // ~6 секунд максимум
+            if (tries > 80) { // ~12 секунд максимум
+                stopKeep();
+                return;
+            }
 
             try {
-                // Если меню закрылось — открываем обратно
+                // 1. Если меню закрыто — открываем
                 if (!document.body.classList.contains('menu--open')) {
                     Lampa.Controller.toggle('menu');
                 }
 
-                // Возвращаем фокус на наш пункт меню
-                if (el && el.length && !el.hasClass('focus')) {
-                    Lampa.Controller.focus(el[0]);
+                // 2. Возвращаем фокус на пункт меню
+                if (el && el.length) {
+                    if (!el.hasClass('focus')) {
+                        Lampa.Controller.focus(el[0]);
+                    }
                 }
+
+                // 3. Дополнительно принудительно ставим класс
+                document.body.classList.add('menu--open');
             } catch (e) { }
-        }, 150);
+        }, 120);
     }
 
     function registerSettings() {
@@ -268,8 +284,9 @@
     }
 
     function bindAutoOpen() {
-        // Пользователь сам нажал вправо / ОК / назад → больше не держим меню
+        // Только явный выход пользователя останавливает удержание
         document.addEventListener('keydown', function (e) {
+            // Вправо, ОК, Назад, Escape и т.п.
             if ([39, 13, 8, 27, 4, 461, 10009].indexOf(e.keyCode) > -1) {
                 userForcedClose = true;
                 stopKeep();
@@ -278,12 +295,17 @@
 
         $(document).on('hover:focus', '.menu__item', function () {
             if (!autoOn() || !document.body.classList.contains('menu--open')) return;
+
             var el = $(this);
 
             if (el[0] === lastAutoEl && Date.now() < ignoreUntil) return;
-            if (!initialSeen) { initialSeen = true; return; }
+            if (!initialSeen) {
+                initialSeen = true;
+                return;
+            }
 
             clearTimeout(autoTimer);
+
             if (!isSafeItem(el)) return;
             if (el.data('action') === currentAction()) return;
 
@@ -291,22 +313,38 @@
                 if (!(el.hasClass('focus') && document.body.classList.contains('menu--open'))) return;
 
                 lastAutoEl = el[0];
-                ignoreUntil = Date.now() + 1200;
+                ignoreUntil = Date.now() + 1000;
 
                 // Открываем раздел
                 el.trigger('hover:enter');
 
-                // И сразу жёстко возвращаем меню + фокус
+                // Сразу начинаем жёстко держать меню
                 if (keepOn()) {
+                    // Несколько попыток подряд, чтобы перебить Лампу
                     setTimeout(function () {
                         try {
-                            if (!document.body.classList.contains('menu--open')) {
-                                Lampa.Controller.toggle('menu');
-                            }
+                            document.body.classList.add('menu--open');
+                            Lampa.Controller.toggle('menu');
                             Lampa.Controller.focus(el[0]);
                         } catch (e) { }
                         startKeep(el);
-                    }, 80);
+                    }, 50);
+
+                    setTimeout(function () {
+                        try {
+                            document.body.classList.add('menu--open');
+                            Lampa.Controller.toggle('menu');
+                            Lampa.Controller.focus(el[0]);
+                        } catch (e) { }
+                    }, 200);
+
+                    setTimeout(function () {
+                        try {
+                            document.body.classList.add('menu--open');
+                            Lampa.Controller.toggle('menu');
+                            Lampa.Controller.focus(el[0]);
+                        } catch (e) { }
+                    }, 450);
                 }
             }, delayMs());
         });
@@ -319,13 +357,24 @@
         bindAutoOpen();
         document.body.classList.add('nf-menu2');
 
+        // Следим за классом menu--open
         if (window.MutationObserver) {
             new MutationObserver(function () {
                 var open = document.body.classList.contains('menu--open');
+
                 if (open && !wasOpen) {
                     initialSeen = false;
                     userForcedClose = false;
                 }
+
+                // Если меню пытаются закрыть во время keep — сразу возвращаем
+                if (!open && keepActive && !userForcedClose) {
+                    try {
+                        document.body.classList.add('menu--open');
+                        Lampa.Controller.toggle('menu');
+                    } catch (e) { }
+                }
+
                 if (!open) clearTimeout(autoTimer);
                 wasOpen = open;
                 markCurrent();
@@ -339,12 +388,17 @@
             markCurrent();
             if (++tries > 20) {
                 clearInterval(timer);
-                setInterval(function () { addSearch(); addProfile(); }, 2000);
+                setInterval(function () {
+                    addSearch();
+                    addProfile();
+                }, 2000);
             }
         }, 500);
 
         console.log('[NF Menu] v' + VERSION + ' loaded');
-        try { Lampa.Noty.show('Меню Netflix: версия ' + VERSION + ' загружена'); } catch (e) { }
+        try {
+            Lampa.Noty.show('Меню Netflix: версия ' + VERSION + ' (меню не закрывается)');
+        } catch (e) { }
     }
 
     if (window.appready) start();
