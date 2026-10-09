@@ -3,7 +3,7 @@
 
     if (!window.Lampa) return;
 
-    var VERSION = 5;
+    var VERSION = 6;
     if (window.nf_menu_version && window.nf_menu_version >= VERSION) return;
     window.nf_menu_version = VERSION;
 
@@ -88,6 +88,42 @@
     var ICON_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
         '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
 
+    // Порядок пунктов хранит сам редактор меню Лампы в Storage 'menu_sort'.
+    // Мы не спорим с ним: если «Поиск» уже есть в сохранённом порядке, оставляем его там, где поставил пользователь.
+    var MINE = ['nf_search', 'Поиск'];
+
+    function sortArr() {
+        try {
+            var v = Lampa.Storage.get('menu_sort', '[]');
+            if (typeof v === 'string') v = JSON.parse(v);
+            return Array.isArray(v) ? v : [];
+        } catch (e) { return []; }
+    }
+
+    function mineIndex(arr) {
+        for (var i = 0; i < arr.length; i++) {
+            if (typeof arr[i] === 'string' && MINE.indexOf(arr[i]) > -1) return i;
+        }
+        return -1;
+    }
+
+    // один раз за всё время: «Поиск» ставим первым и в сохранённом порядке тоже
+    function migrateOnce() {
+        var done = Lampa.Storage.get('nf_search_first_done', 'false');
+        if (done === true || done === 'true') return false;
+        try {
+            var arr = sortArr();
+            var i = mineIndex(arr);
+            if (i > 0) {
+                var entry = arr.splice(i, 1)[0];
+                arr.unshift(entry);
+                Lampa.Storage.set('menu_sort', arr);
+            }
+        } catch (e) { }
+        Lampa.Storage.set('nf_search_first_done', 'true');
+        return true;
+    }
+
     function addSearch() {
         if ($('.nf-search-item').length) return;
         var list = $('.wrap__left .menu__list').first();
@@ -104,6 +140,15 @@
             } catch (e) { }
         });
         list.prepend(li);
+
+        // редактор меню Лампы после нашей вставки может переставить пункт, поэтому проверяем чуть позже
+        setTimeout(function () {
+            var moved = migrateOnce();
+            var inSort = mineIndex(sortArr()) > -1;
+            if (moved || !inSort) {
+                li.parent().prepend(li);
+            }
+        }, 500);
     }
 
     // ----- строка «Профиль» (в конце меню) -----
