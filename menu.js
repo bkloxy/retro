@@ -1,213 +1,246 @@
+
 (function () {
     'use strict';
-    if (!window.Lampa || !window.$) return;
-    if (window.retroMenuVersion >= 21) return;
-    window.retroMenuVersion = 21;
-    var STYLE_ID = 'retro-menu-v21-style';
-    var SEARCH_ACTION = 'retro_search';
-    var CATEGORIES = {
-        main: true,
-        feed: true,
-        movie: true,
-        cartoon: true,
-        tv: true,
-        myperson: true,
-        relise: true,
-        anime: true,
-        favorite: true,
-        history: true,
-        subscribes: true,
-        timetable: true,
-        mytorrents: true
+
+    if (window.retroMenuExperimentLoaded) return;
+    window.retroMenuExperimentLoaded = true;
+
+    var PREFIX = 'retro_menu_exp_';
+    var MODE_KEY = PREFIX + 'mode';
+    var STYLE_ID = 'retro-menu-experiment-style';
+
+    var state = {
+        mode: '1',
+        busy: false,
+        lastIndex: 0
     };
-    var searchIcon =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<circle cx="11" cy="11" r="7"/>' +
-        '<path d="m20 20-4-4"/>' +
-        '</svg>';
-    var focusTimer = null;
-    var lastAction = '';
-    var switching = false;
-    var rightPressed = false;
-    var started = false;
-    function addStyle() {
+
+    function storageGet(key, fallback) {
+        try {
+            return Lampa.Storage.get(key, fallback);
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function storageSet(key, value) {
+        try {
+            Lampa.Storage.set(key, value);
+        } catch (e) {}
+    }
+
+    function getItems() {
+        return Array.prototype.slice.call(
+            document.querySelectorAll('.menu__item')
+        ).filter(function (item) {
+            return item.offsetParent !== null;
+        });
+    }
+
+    function isMenuVisible() {
+        var menu = document.querySelector('.wrap__left');
+        if (!menu) return false;
+
+        return menu.offsetWidth > 0 &&
+            getComputedStyle(menu).display !== 'none';
+    }
+
+    function currentIndex(items) {
+        var index = items.findIndex(function (item) {
+            return item.classList.contains('focus') ||
+                item.classList.contains('hover');
+        });
+
+        return index >= 0 ? index : state.lastIndex;
+    }
+
+    function focusItem(item, index) {
+        if (!item) return;
+
+        state.lastIndex = index;
+
+        if (window.Lampa && Lampa.Controller) {
+            try {
+                Lampa.Controller.focus(item);
+            } catch (e) {}
+        }
+
+        if (window.$) {
+            try {
+                $(item).trigger('hover:focus');
+            } catch (e) {}
+        }
+
+        item.scrollIntoView({
+            block: 'nearest',
+            behavior: 'auto'
+        });
+    }
+
+    function moveMenu(direction) {
+        var items = getItems();
+        if (!items.length) return;
+
+        var index = currentIndex(items);
+
+        if (direction === 'up') index--;
+        if (direction === 'down') index++;
+
+        if (index < 0) index = items.length - 1;
+        if (index >= items.length) index = 0;
+
+        focusItem(items[index], index);
+    }
+
+    function goToContent() {
+        if (window.Lampa && Lampa.Controller) {
+            try {
+                Lampa.Controller.toggle('content');
+                return;
+            } catch (e) {}
+        }
+
+        var item = document.querySelector(
+            '.items .selector, .card.selector, .card.focus'
+        );
+
+        if (item && window.Lampa && Lampa.Controller) {
+            try {
+                Lampa.Controller.focus(item);
+            } catch (e) {}
+        }
+    }
+
+    function installStyles() {
         if (document.getElementById(STYLE_ID)) return;
+
         var style = document.createElement('style');
         style.id = STYLE_ID;
-        style.textContent = `
-            body.retro-menu-v21 .wrap__left {
-                background: #101010 !important;
-                border: none !important;
-            }
-            body.retro-menu-v21 .menu__item {
-                box-sizing: border-box !important;
-                border-radius: 9px !important;
-                background: transparent !important;
-                color: #aaa !important;
-                transition: background .12s ease, color .12s ease;
-            }
-            body.retro-menu-v21 .menu__item.focus {
-                background: #292929 !important;
-                color: #fff !important;
-                outline: none !important;
-            }
-            body.retro-menu-v21 .menu__item.focus .menu__text {
-                color: #fff !important;
-                font-weight: 700 !important;
-            }
-            body.retro-menu-v21 .menu__ico {
-                color: inherit !important;
-            }
-            body.retro-menu-v21 .retro-search-item {
-                margin-bottom: .6em !important;
-                padding-bottom: .6em !important;
-                border-bottom: 1px solid #353535 !important;
-            }
-            body.retro-menu-v21 .retro-search-item svg {
-                display: block;
-                width: 1.5em;
-                height: 1.5em;
-            }
-        `;
+        style.textContent = [
+            'body.retro-menu-exp .wrap__left {',
+            '  visibility: visible;',
+            '}',
+            'body.retro-menu-exp .menu__item.focus,',
+            'body.retro-menu-exp .menu__item.hover {',
+            '  opacity: 1;',
+            '}'
+        ].join('\n');
+
         document.head.appendChild(style);
-        document.body.classList.add('retro-menu-v21');
     }
-    function keepMenuVisible() {
-        try {
-            if (Lampa.Storage && Lampa.Storage.set) {
-                Lampa.Storage.set('menu_always', true);
-            }
-            document.body.classList.add('menu--open');
-            $('.wrap__left')
-                .removeClass('wrap__left--hidden');
-        } catch (e) {
-            console.warn('[Retro Menu] Visibility:', e);
-        }
-    }
-    function addSearch() {
-        var list = $('.wrap__left .menu__list').first();
-        if (!list.length) return;
-        var item = list.find('.retro-search-item').first();
-        if (!item.length) {
-            item = $(
-                '<li class="menu__item selector retro-search-item" ' +
-                'data-action="' + SEARCH_ACTION + '">' +
-                '<div class="menu__ico">' + searchIcon + '</div>' +
-                '<div class="menu__text">Поиск</div>' +
-                '</li>'
-            );
-            item.on('hover:enter', function () {
-                openSearch();
-            });
-        }
-        if (item.parent()[0] !== list[0] ||
-            item[0] !== list.children().first()[0]) {
-            item.prependTo(list);
-        }
-    }
-    function openSearch() {
-        try {
-            var nativeSearch = $('.open--search').first();
-            if (nativeSearch.length) {
-                nativeSearch.trigger('hover:enter');
-            } else if (Lampa.Search && Lampa.Search.open) {
-                Lampa.Search.open();
-            } else {
-                console.warn('[Retro Menu] Search action unavailable');
-            }
-        } catch (e) {
-            console.error('[Retro Menu] Search:', e);
-        }
-    }
-    function menuIsOpen() {
-        var left = $('.wrap__left').first();
-        return left.length &&
-            !left.hasClass('wrap__left--hidden') &&
-            document.body.classList.contains('menu--open');
-    }
-    function selectCategory(item, action) {
-        if (switching || rightPressed || !menuIsOpen()) return;
-        if (!item || !item.isConnected) return;
-        if (!$(item).hasClass('focus')) return;
-        if (!CATEGORIES[action]) return;
-        if (action === lastAction) return;
-        lastAction = action;
-        switching = true;
-        try {
-            /*
-             * Запускаем штатное действие категории только после
-             * того, как фокус остановился на нужном пункте.
-             * Повторно меню не переключаем и фокус насильно
-             * не возвращаем: этим занимается Lampa.
-             */
-            $(item).trigger('hover:enter');
-        } catch (e) {
-            console.error('[Retro Menu] Category:', action, e);
-        }
-        setTimeout(function () {
-            switching = false;
-            keepMenuVisible();
-            addSearch();
-        }, 250);
-    }
-    function onMenuFocus() {
-        if (rightPressed || switching) return;
-        var item = this;
-        var action = String($(item).attr('data-action') || '');
-        if (!action || action === SEARCH_ACTION) return;
-        if (!CATEGORIES[action]) return;
-        clearTimeout(focusTimer);
-        focusTimer = setTimeout(function () {
-            selectCategory(item, action);
-        }, 220);
-    }
-    function bindNavigation() {
-        /*
-         * Не перехватываем стрелки и не блокируем стандартный
-         * Controller Lampa. Это позволяет штатно переходить
-         * вправо к карточкам и влево обратно в меню.
-         */
-        document.addEventListener('keydown', function (event) {
-            var key = event.key;
-            var code = event.keyCode;
-            if (key === 'ArrowRight' || code === 39) {
-                rightPressed = true;
-                clearTimeout(focusTimer);
-            }
-            if (key === 'ArrowLeft' || code === 37) {
-                rightPressed = false;
-            }
-        }, false);
-        $(document).on(
-            'hover:focus.retroMenuV21',
-            '.wrap__left .menu__item',
-            function () {
-                rightPressed = false;
-                onMenuFocus.call(this);
-            }
+
+    function applyMode(mode) {
+        state.mode = String(mode || '1');
+        storageSet(MODE_KEY, state.mode);
+
+        document.body.classList.toggle(
+            'retro-menu-exp',
+            state.mode !== '1'
         );
+
+        console.log('[Retro Menu] Режим:', state.mode);
     }
+
+    function handleKeydown(event) {
+        if (state.busy || !isMenuVisible()) return;
+
+        var key = event.key;
+        var code = event.keyCode;
+
+        var up = key === 'ArrowUp' || code === 38;
+        var down = key === 'ArrowDown' || code === 40;
+        var left = key === 'ArrowLeft' || code === 37;
+        var right = key === 'ArrowRight' || code === 39;
+
+        if (!up && !down && !left && !right) return;
+
+        /*
+         * Режим 1: перехват навигации при открытом родном меню.
+         * Режим 2: собственная обработка перемещения по пунктам.
+         * Режим 3: своя навигация в меню, родной контроллер для контента.
+         *
+         * Пока режимы используют общий безопасный обработчик перемещения.
+         * Различия расширим после проверки поведения на устройстве.
+         */
+
+        if (up || down) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (event.stopImmediatePropagation) {
+                event.stopImmediatePropagation();
+            }
+
+            moveMenu(up ? 'up' : 'down');
+        } else if (right) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (event.stopImmediatePropagation) {
+                event.stopImmediatePropagation();
+            }
+
+            goToContent();
+        }
+    }
+
+    function addSettings() {
+        if (!Lampa.SettingsApi ||
+            typeof Lampa.SettingsApi.addParam !== 'function') return;
+
+        try {
+            Lampa.SettingsApi.addParam({
+                component: 'interface',
+                param: {
+                    name: MODE_KEY,
+                    type: 'select',
+                    values: {
+                        '1': 'Режим 1 — родной контроллер',
+                        '2': 'Режим 2 — собственная навигация',
+                        '3': 'Режим 3 — гибридный'
+                    },
+                    default: '1'
+                },
+                field: {
+                    name: 'Экспериментальное меню',
+                    description: 'Выберите способ управления меню'
+                },
+                onChange: function (value) {
+                    applyMode(value);
+                }
+            });
+        } catch (e) {
+            console.error('[Retro Menu] Не удалось добавить настройку', e);
+        }
+    }
+
     function start() {
-        if (started) return;
-        started = true;
-        addStyle();
-        addSearch();
-        bindNavigation();
-        var observer = new MutationObserver(function () {
-            addSearch();
-        });
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        console.log('[Retro Menu] v21 initialized');
+        if (!window.Lampa || !window.$) return;
+
+        installStyles();
+        addSettings();
+
+        applyMode(storageGet(MODE_KEY, '1'));
+
+        document.addEventListener('keydown', handleKeydown, true);
+
+        console.log('[Retro Menu] Эксперимент загружен');
     }
-    if (window.appready) {
+
+    if (window.Lampa && window.Lampa.SettingsApi) {
         start();
     } else {
-        Lampa.Listener.follow('app', function (event) {
-            if (event.type === 'ready') start();
-        });
+        var attempts = 0;
+        var timer = setInterval(function () {
+            attempts++;
+
+            if (window.Lampa && window.Lampa.SettingsApi) {
+                clearInterval(timer);
+                start();
+            } else if (attempts >= 40) {
+                clearInterval(timer);
+                console.error('[Retro Menu] Lampa не обнаружена');
+            }
+        }, 500);
     }
 })();
