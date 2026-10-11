@@ -369,3 +369,319 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+/*
+ * Lampa: мировые сборы фильмов из TMDB
+ * Добавляет поле «Сборы» сразу после поля «Бюджет».
+ * Если данных нет или значение равно нулю — поле не добавляется.
+ */
+(function () {
+    'use strict';
+
+    if (window.lampaBoxOfficePluginReady) return;
+    window.lampaBoxOfficePluginReady = true;
+
+    var MARK = 'data-lampa-box-office';
+
+    var LABELS = {
+        release: ['дата релиза', 'дата выхода', 'release date', 'date of release'],
+        budget: ['бюджет', 'budget'],
+        countries: ['страны', 'страна', 'countries', 'country']
+    };
+
+    function normalize(value) {
+        return String(value || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase()
+            .replace(/:$/, '');
+    }
+
+    function isLabel(value, variants) {
+        return variants.indexOf(normalize(value)) !== -1;
+    }
+
+    function rootFromEvent(event) {
+        var body = event && event.body;
+
+        if (body && body[0] && body[0].nodeType === 1) {
+            return body[0];
+        }
+
+        if (body && body.nodeType === 1) {
+            return body;
+        }
+
+        return document.querySelector('.full-start, .full-start-new') || document;
+    }
+
+    function findLabel(root, variants) {
+        var nodes = root.querySelectorAll('*');
+        var found = null;
+
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+
+            if (!isLabel(node.textContent, variants)) continue;
+
+            var hasExactChild = false;
+
+            for (var j = 0; j < node.children.length; j++) {
+                if (isLabel(node.children[j].textContent, variants)) {
+                    hasExactChild = true;
+                    break;
+                }
+            }
+
+            if (!hasExactChild) found = node;
+        }
+
+        return found;
+    }
+
+    function directBranch(ancestor, node) {
+        var current = node;
+
+        while (
+            current &&
+            current.parentElement &&
+            current.parentElement !== ancestor
+        ) {
+            current = current.parentElement;
+        }
+
+        return current && current.parentElement === ancestor
+            ? current
+            : null;
+    }
+
+    function findMetadataRow(root, releaseLabel, budgetLabel, countriesLabel) {
+        var current = budgetLabel;
+
+        while (current && current !== root && current.parentElement) {
+            var parent = current.parentElement;
+
+            var releaseBranch = directBranch(parent, releaseLabel);
+            var budgetBranch = directBranch(parent, budgetLabel);
+            var countriesBranch = directBranch(parent, countriesLabel);
+
+            if (
+                releaseBranch &&
+                budgetBranch &&
+                countriesBranch &&
+                releaseBranch !== budgetBranch &&
+                countriesBranch !== budgetBranch &&
+                releaseBranch !== countriesBranch &&
+                parent.children.length >= 3
+            ) {
+                return parent;
+            }
+
+            current = parent;
+        }
+
+        return null;
+    }
+
+    function formatMoney(amount) {
+        var rounded = Math.round(Number(amount));
+
+        if (!isFinite(rounded) || rounded <= 0) return '';
+
+        var digits = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+        return '$ ' + digits;
+    }
+
+    function deepestMatchingLabel(root, variants) {
+        var nodes = root.querySelectorAll('*');
+        var found = null;
+
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+
+            if (!isLabel(node.textContent, variants)) continue;
+
+            var exactChild = false;
+
+            for (var j = 0; j < node.children.length; j++) {
+                if (isLabel(node.children[j].textContent, variants)) {
+                    exactChild = true;
+                    break;
+                }
+            }
+
+            if (!exactChild) found = node;
+        }
+
+        return found;
+    }
+
+    function clearIds(root) {
+        if (root.removeAttribute) root.removeAttribute('id');
+
+        var nodes = root.querySelectorAll('[id]');
+
+        for (var i = 0; i < nodes.length; i++) {
+            nodes[i].removeAttribute('id');
+        }
+    }
+
+    function updateClonedField(field, value) {
+        var label = deepestMatchingLabel(field, LABELS.budget);
+
+        if (!label) return false;
+
+        label.textContent = 'Сборы';
+
+        var labelBranch = directBranch(field, label);
+        var children = Array.prototype.slice.call(field.children);
+        var valueBranch = null;
+
+        for (var i = 0; i < children.length; i++) {
+            if (
+                children[i] !== labelBranch &&
+                normalize(children[i].textContent)
+            ) {
+                valueBranch = children[i];
+                break;
+            }
+        }
+
+        if (!valueBranch) {
+            var all = field.querySelectorAll('*');
+
+            for (var k = 0; k < all.length; k++) {
+                if (
+                    all[k] !== label &&
+                    !all[k].contains(label) &&
+                    normalize(all[k].textContent)
+                ) {
+                    valueBranch = all[k];
+                    break;
+                }
+            }
+        }
+
+        if (!valueBranch) return false;
+
+        valueBranch.textContent = value;
+        field.setAttribute(MARK, 'true');
+
+        clearIds(field);
+
+        return true;
+    }
+
+    function addBoxOffice(event) {
+        try {
+            var data = event && event.data;
+            var movie = data && data.movie;
+
+            // Не добавляем сборы сериалам.
+            if (!movie || movie.name || movie.first_air_date) return;
+
+            // Используем настоящие данные TMDB.
+            var revenue = Number(movie.revenue || 0);
+            var money = formatMoney(revenue);
+
+            // Ноль означает, что достоверных сборов нет.
+            if (!money) return;
+
+            var root = rootFromEvent(event);
+
+            if (!root || !root.querySelectorAll) return;
+
+            var old = root.querySelector('[' + MARK + ']');
+
+            if (old && old.parentElement) {
+                old.parentElement.removeChild(old);
+            }
+
+            var releaseLabel = findLabel(root, LABELS.release);
+            var budgetLabel = findLabel(root, LABELS.budget);
+            var countriesLabel = findLabel(root, LABELS.countries);
+
+            if (!releaseLabel || !budgetLabel || !countriesLabel) return;
+
+            var row = findMetadataRow(
+                root,
+                releaseLabel,
+                budgetLabel,
+                countriesLabel
+            );
+
+            if (!row) return;
+
+            var budgetBranch = directBranch(row, budgetLabel);
+
+            if (!budgetBranch || !budgetBranch.parentNode) return;
+
+            // Копируем оформление поля бюджета для нового поля сборов.
+            var clone = budgetBranch.cloneNode(true);
+
+            if (!updateClonedField(clone, money)) return;
+
+            // Вставляем сразу после бюджета, перед странами.
+            budgetBranch.parentNode.insertBefore(
+                clone,
+                budgetBranch.nextSibling
+            );
+
+        } catch (error) {
+            try {
+                console.warn(
+                    '[lampa-box-office] Ошибка добавления сборов:',
+                    error
+                );
+            } catch (ignore) {}
+        }
+    }
+
+    function start() {
+        if (
+            !window.Lampa ||
+            !Lampa.Listener ||
+            !Lampa.Listener.follow
+        ) {
+            return;
+        }
+
+        Lampa.Listener.follow('full', function (event) {
+            if (event && event.type === 'complite') {
+                addBoxOffice(event);
+            }
+        });
+    }
+
+    if (window.appready) {
+        start();
+    } else if (
+        window.Lampa &&
+        Lampa.Listener &&
+        Lampa.Listener.follow
+    ) {
+        Lampa.Listener.follow('app', function (event) {
+            if (event && event.type === 'ready') {
+                start();
+            }
+        });
+    } else {
+        var tries = 0;
+
+        var waiter = setInterval(function () {
+            tries++;
+
+            if (
+                window.appready &&
+                window.Lampa &&
+                Lampa.Listener &&
+                Lampa.Listener.follow
+            ) {
+                clearInterval(waiter);
+                start();
+            } else if (tries > 100) {
+                clearInterval(waiter);
+            }
+        }, 250);
+    }
+})();
