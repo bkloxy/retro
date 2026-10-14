@@ -20,13 +20,11 @@
     }
 
     function normalizeTitle(value) {
-        return String(value || '').toLowerCase()
-            .normalize ? String(value || '').toLowerCase().normalize('NFKD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/&/g, ' and ')
-                .replace(/[^a-z0-9а-яё]+/gi, ' ')
-                .replace(/\s+/g, ' ').trim()
-            : String(value || '').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').replace(/\s+/g, ' ').trim();
+        var text = String(value || '').toLowerCase();
+        if (text.normalize) text = text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+        return text.replace(/&/g, ' and ')
+            .replace(/[^a-z0-9\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]+/g, ' ')
+            .replace(/\s+/g, ' ').trim();
     }
 
     function getStorage(key, fallback) {
@@ -93,84 +91,97 @@
             .filter(Boolean).map(normalizeTitle);
     }
 
-    function exactTitleMatch(results, title) {
+    function exactTitleMatch(results, title, type, weekEnding) {
         var expected = normalizeTitle(title);
         if (!expected) return null;
-        for (var i = 0; i < results.length; i++) {
-            var names = candidateNames(results[i]);
-            if (names.indexOf(expected) !== -1) return results[i];
-        }
-        return null;
+        var matches = results.filter(function (r) {
+            return r && r.id && r.poster_path && candidateNames(r).indexOf(expected) !== -1;
+        });
+        if (!matches.length) return null;
+        if (matches.length === 1) return matches[0];
+        // Several titles share the name (remakes, same-name shows). The Netflix TSV has no year,
+        // so: ignore titles released after the chart week, then take the most popular one.
+        // TMDB popularity follows what is trending now, which is what a Top 10 chart reflects.
+        var limit = weekEnding || '9999-12-31';
+        var released = matches.filter(function (r) {
+            var d = (type === 'movie' ? r.release_date : r.first_air_date) || '';
+            return d && d <= limit;
+        });
+        var pool = released.length ? released : matches;
+        pool.sort(function (x, y) { return (y.popularity || 0) - (x.popularity || 0); });
+        return pool[0];
     }
 
     function mapCacheKey(type, title) {
         return type + '|' + normalizeTitle(title);
     }
 
-    function resolveMetadata(entry, type) {
+    function pruneCache(cache) {
+        Object.keys(cache).forEach(function (key) {
+            if (!cache[key] || !cache[key].saved_at || Date.now() - cache[key].saved_at >= CACHE_TTL) delete cache[key];
+        });
+    }
+
+    function cloneItem(source) {
+        var copy = {};
+        Object.keys(source).forEach(function (k) { copy[k] = source[k]; });
+        return copy;
+    }
+
+    function resolveMetadata(entry, type, weekEnding) {
         var cache = getStorage(CACHE_KEY, {});
         var key = mapCacheKey(type, entry.title);
         var saved = cache[key];
         if (saved && saved.saved_at && Date.now() - saved.saved_at < CACHE_TTL && saved.item) {
-            return Promise.resolve(saved.item);
+            return Promise.resolve(cloneItem(saved.item));
         }
 
         return tmdbGet('search/' + type, { query: entry.title, language: 'en-US', page: 1 }).then(function (data) {
             var results = data && Array.isArray(data.results) ? data.results : [];
-            var match = exactTitleMatch(results, entry.title);
-            // The TSV has no release-year column. We therefore require an exact normalized
-            // title match and the right media endpoint; uncertain matches are omitted.
-            if (!match || !match.id || !match.poster_path) return null;
+            var match = exactTitleMatch(results, entry.title, type, weekEnding);
+            if (!match) return null;
             var date = type === 'movie' ? (match.release_date || '') : (match.first_air_date || '');
-            var item = {};
-            Object.keys(match).forEach(function (k) { item[k] = match[k]; });
+            var item = cloneItem(match);
             item.id = String(match.id);
             item.media_type = type;
             item.type = 'tmdb';
             item.source = 'tmdb';
-            item.netflix_top10_rank = entry.rank;
-            item.netflix_top10_views = entry.weekly_views;
-            item.netflix_top10_category_rank = entry.category_rank;
-            item.netflix_top10_week_ending = entry.week_ending || null;
-            item.netflix_top10_season_title = entry.season_title || null;
-            item.netflix_top10_category = entry.source_category || '';
-            item.subTitle = 'NETFLIX TOP 10 · № ' + entry.rank;
             item.release_date = date;
             item.year = date ? date.slice(0, 4) : '';
             item.overview = match.overview || '';
-            item.description = 'Netflix Global Top 10 · место № ' + entry.rank +
-                (entry.weekly_views ? '\nПросмотры за неделю: ' + Number(entry.weekly_views).toLocaleString('ru-RU') : '') +
-                (entry.season_title ? '\n' + entry.season_title : '') +
-                (item.overview ? '\n\n' + item.overview : '');
 
+            pruneCache(cache);
             cache[key] = { saved_at: Date.now(), item: item };
             setStorage(CACHE_KEY, cache);
-            return item;
+            return cloneItem(item);
         }).catch(function () { return null; });
+    }
+
+    function decorate(item, entry, data) {
+        item.netflix_top10_rank = entry.rank;
+        item.netflix_top10_category_rank = entry.category_rank;
+        item.netflix_top10_views = entry.weekly_views;
+        item.netflix_top10_season_title = entry.season_title || null;
+        item.netflix_top10_category = entry.source_category || '';
+        item.netflix_top10_week_ending = data.week_ending || null;
+        item.subTitle = 'NETFLIX TOP 10 \u00b7 \u2116 ' + entry.rank;
+        item.description = 'Netflix Global Top 10 \u00b7 \u043c\u0435\u0441\u0442\u043e \u2116 ' + entry.rank +
+            (data.week_ending ? '\n\u041d\u0435\u0434\u0435\u043b\u044f \u0434\u043e ' + data.week_ending : '') +
+            (entry.weekly_views ? '\n\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u044b \u0437\u0430 \u043d\u0435\u0434\u0435\u043b\u044e: ' + Number(entry.weekly_views).toLocaleString('ru-RU') : '') +
+            (entry.season_title ? '\n' + entry.season_title : '') +
+            (item.overview ? '\n\n' + item.overview : '');
+        return item;
     }
 
     function getRowItems(type) {
         return loadJson().then(function (data) {
             var entries = data && Array.isArray(data[type === 'movie' ? 'movies' : 'tv']) ?
                 data[type === 'movie' ? 'movies' : 'tv'] : [];
-            if (!entries.length) return [];
+            var stale = data && data.freshness_status === 'stale';
+            if (!entries.length) return { items: [], stale: stale };
             return Promise.all(entries.slice(0, 10).map(function (entry) {
-                // Keep the original Netflix position and the original category position distinct.
-                var row = {};
-                Object.keys(entry).forEach(function (key) { row[key] = entry[key]; });
-                return resolveMetadata(row, type).then(function (item) {
-                    if (!item) return null;
-                    item.netflix_top10_week_ending = data.week_ending || null;
-                    item.netflix_top10_rank = entry.rank;
-                    item.netflix_top10_category_rank = entry.category_rank;
-                    item.netflix_top10_views = entry.weekly_views;
-                    item.netflix_top10_season_title = entry.season_title || null;
-                    item.subTitle = 'NETFLIX TOP 10 · № ' + entry.rank;
-                    item.description = 'Netflix Global Top 10 · место № ' + entry.rank +
-                        (entry.weekly_views ? '\nПросмотры за неделю: ' + Number(entry.weekly_views).toLocaleString('ru-RU') : '') +
-                        (entry.season_title ? '\n' + entry.season_title : '') +
-                        (item.overview ? '\n\n' + item.overview : '');
-                    return item;
+                return resolveMetadata(entry, type, data.week_ending).then(function (item) {
+                    return item ? decorate(item, entry, data) : null;
                 });
             })).then(function (items) {
                 items = items.filter(Boolean).sort(function (a, b) {
@@ -178,10 +189,9 @@
                 });
                 if (window.Lampa && Lampa.Utils && typeof Lampa.Utils.addSource === 'function') {
                     var wrapped = Lampa.Utils.addSource({ results: items }, 'tmdb');
-                    return wrapped && Array.isArray(wrapped.results) ? wrapped.results : items;
+                    if (wrapped && Array.isArray(wrapped.results)) items = wrapped.results;
                 }
-                items.forEach(function (item) { item.source = 'tmdb'; });
-                return items;
+                return { items: items, stale: stale };
             });
         });
     }
@@ -230,8 +240,10 @@
                         callback({ title: '', results: [], total_results: 0, total_pages: 1, page: 1 });
                         return;
                     }
-                    getRowItems(type).then(function (items) {
-                        var title = type === 'movie' ? 'Фильмы Netflix Top 10' : 'Сериалы Netflix Top 10';
+                    getRowItems(type).then(function (result) {
+                        var items = result.items;
+                        var title = type === 'movie' ? '\u0424\u0438\u043b\u044c\u043c\u044b Netflix Top 10' : '\u0421\u0435\u0440\u0438\u0430\u043b\u044b Netflix Top 10';
+                        if (result.stale) title += ' (\u0434\u0430\u043d\u043d\u044b\u0435 \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438)';
                         callback({
                             title: items.length ? title : '',
                             results: items,
