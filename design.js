@@ -742,7 +742,7 @@
     'body.oldx-poster-xl .explorer-card__head,body.oldx-poster-xl [class*="explorer-card__head"]:not([class*="__head-"]){display:flex !important;flex-direction:column !important;align-items:flex-start !important}',
     'body.oldx-poster-xl .explorer-card__head-body{margin:.8em 0 0 0 !important;padding:0 !important}',
     'body.oldx-poster-xl .explorer-card__head-img{width:100% !important;max-width:100% !important;margin:0 !important}',
-    'body.oldx-poster-xl .explorer-card__head-img img{width:100% !important;object-fit:cover}'
+    'body.oldx-poster-xl [class*="explorer-card"] [class*="head-img"]::before,body.oldx-poster-xl [class*="explorer-card"] [class*="head-img"]::after{display:none !important}'
   ].join('\n');
 
   function injectCss() {
@@ -770,17 +770,19 @@
   function bigPoster() {
     try {
       var big = flag('oldx_bigposter', true);
-      var imgs = document.querySelectorAll('.explorer-card__head-img');
-      for (var i = 0; i < imgs.length; i++) {
-        var st = imgs[i].style;
-        if (big) { st.setProperty('width', '100%', 'important'); st.setProperty('max-width', '100%', 'important'); }
-        else { st.removeProperty('width'); st.removeProperty('max-width'); }
-        var par = imgs[i].parentElement;
-        if (par && par.className.indexOf('explorer-card__head') !== -1) {
-          if (big) { par.style.setProperty('display', 'flex', 'important'); par.style.setProperty('flex-direction', 'column', 'important'); par.style.setProperty('align-items', 'flex-start', 'important'); }
-          else { par.style.removeProperty('display'); par.style.removeProperty('flex-direction'); par.style.removeProperty('align-items'); }
+      var img = document.querySelector('[class*="explorer-card"] img');
+      if (!img) return;
+      var box = img.parentElement;
+      if (!box) return;
+      var head = box.parentElement;
+      var P = function (el, props) {
+        for (var k in props) {
+          if (big) el.style.setProperty(k, props[k], 'important'); else el.style.removeProperty(k);
         }
-      }
+      };
+      P(box, { width: '85%', 'max-width': '85%', height: 'auto', 'aspect-ratio': '2 / 3', position: 'relative', margin: '0' });
+      P(img, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', 'object-fit': 'cover' });
+      if (head && head !== document.body) P(head, { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-start' });
     } catch (e) { log('poster', e); }
   }
 
@@ -806,25 +808,34 @@
   }
 
   /* ---------- 2. вертикальный блок данных ---------- */
-  function leafLabel(root, names) {
-    var all = root.querySelectorAll('div,span');
+  var KEY = /^(дата (релиза|выхода)|бюджет|сборы|страны?|release|budget|countr|box office|сезон|эпизод|серий|статус|status)/;
+  function metaLabels(scope) {
+    var res = [], all = scope.querySelectorAll('div,span');
     for (var i = 0; i < all.length; i++) {
-      if (all[i].children.length === 0 && names.indexOf(norm(all[i].textContent)) !== -1) return all[i];
+      var n = all[i];
+      if (n.children.length === 0) {
+        var t = norm(n.textContent);
+        if (t && t.length < 30 && KEY.test(t)) res.push(n);
+      }
     }
-    return null;
+    return res;
   }
   function metaRows(root) {
     if (!flag('oldx_meta', true)) return;
     try {
-      var scope = root.querySelector ? (root.querySelector('.full-start, .full-start-new, .full-descr') ? root : document) : document;
-      var rel = leafLabel(scope, ['дата релиза', 'дата выхода', 'release date']);
-      var bud = leafLabel(scope, ['бюджет', 'budget']);
-      if (!rel || !bud) return;
-      var cur = bud, row = null;
-      while (cur.parentElement && cur.parentElement !== document.body) {
-        var p = cur.parentElement;
-        if (p.children.length >= 3 && p.contains(rel)) { row = p; break; }
-        cur = p;
+      var scope = document.querySelector('.full-start, .full-start-new, .full-descr') ? document : null;
+      if (!scope) return;
+      var row = document.querySelector('.full-descr__details');
+      if (!row) {
+        var ls = metaLabels(document);
+        if (ls.length < 2) return;
+        var cur = ls[0];
+        while (cur.parentElement && cur.parentElement !== document.body) {
+          var p = cur.parentElement, cnt = 0;
+          for (var k = 0; k < ls.length; k++) if (p.contains(ls[k])) cnt++;
+          if (cnt === ls.length && p.children.length >= 2) { row = p; break; }
+          cur = p;
+        }
       }
       if (!row || row.classList.contains('oldx-wrapped')) return;
       row.classList.add('oldx-meta');
@@ -929,5 +940,3 @@
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
 
-      
-            
