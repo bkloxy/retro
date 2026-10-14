@@ -1,611 +1,332 @@
 /*
- * Netflix Global Top 10 для Lampa.
- * Только две полки Netflix Top 10. Без дополнительных элементов интерфейса.
- * Данные: JSON-зеркало официального глобального рейтинга Netflix.
+ * Netflix Global Top 10 add-on for Lampa 3.x.
+ * Does not replace or modify an existing netflix-top10.js plugin.
+ * The companion GitHub Actions workflow publishes the JSON mirror.
  */
 (function () {
     'use strict';
 
-    if (window.__netflixTop10OnlyLoaded) return;
-    window.__netflixTop10OnlyLoaded = true;
+    if (window.__lampaNetflixGlobalTop10Loaded) return;
+    window.__lampaNetflixGlobalTop10Loaded = true;
 
+    var PLUGIN = 'Netflix Global Top 10';
     var DATA_URL = 'https://bkloxy.github.io/retro/netflix-top10.json';
-    var MOVIE_ROW_TITLE = 'Фильмы Netflix Top 10';
-    var TV_ROW_TITLE = 'Сериалы Netflix Top 10';
-    var CACHE_KEY = 'netflix_top10_tmdb_cache_v2';
+    var CACHE_KEY = 'netflix_top10_tmdb_map_v1';
     var CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
-    var mirrorPromise = null;
-    var metadataPending = {};
+    var dataPromise = null;
 
     function log(message, error) {
-        if (window.console && console.log) {
-            console.log('[Netflix Top 10] ' + message, error || '');
-        }
+        if (window.console && console.log) console.log('[Netflix Top 10] ' + message, error || '');
     }
-
-    function copyObject(source) {
-        var target = {};
-        if (source && typeof source === 'object') {
-            Object.keys(source).forEach(function (key) {
-                target[key] = source[key];
-            });
-        }
-        return target;
-    }
-
-    var unicodeLettersAndNumbers = null;
-    try {
-        unicodeLettersAndNumbers =
-            new RegExp('[^\\p{L}\\p{N}]+', 'gu');
-    } catch (e) {}
 
     function normalizeTitle(value) {
-        var text = String(value || '').toLowerCase();
+        return String(value || '').toLowerCase()
+            .normalize ? String(value || '').toLowerCase().normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/&/g, ' and ')
+                .replace(/[^a-z0-9а-яё]+/gi, ' ')
+                .replace(/\s+/g, ' ').trim()
+            : String(value || '').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').replace(/\s+/g, ' ').trim();
+    }
 
+    function getStorage(key, fallback) {
         try {
-            if (text.normalize) {
-                text = text.normalize('NFKD')
-                    .replace(/[\u0300-\u036f]/g, '');
+            if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.get === 'function') {
+                var value = Lampa.Storage.get(key, fallback);
+                return value == null ? fallback : value;
             }
         } catch (e) {}
-
-        if (unicodeLettersAndNumbers) {
-            text = text.replace(unicodeLettersAndNumbers, ' ');
-        } else {
-            text = text.replace(
-                /[^a-z0-9а-яё\u00c0-\u024f\u1e00-\u1eff\u0600-\u06ff\u0900-\u097f\u0e00-\u0e7f\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+/gi,
-                ' '
-            );
-        }
-
-        return text.replace(/\s+/g, ' ').trim();
+        return fallback;
     }
 
-    function storageGet(key, fallback) {
+    function setStorage(key, value) {
         try {
-            var value = Lampa.Storage.get(key, fallback);
-            return value == null ? fallback : value;
-        } catch (e) {
-            return fallback;
-        }
-    }
-
-    function storageSet(key, value) {
-        try {
-            Lampa.Storage.set(key, value);
+            if (window.Lampa && Lampa.Storage && typeof Lampa.Storage.set === 'function') {
+                Lampa.Storage.set(key, value);
+            }
         } catch (e) {}
     }
 
-    function parseJson(value) {
-        if (typeof value === 'string') {
-            try {
-                return JSON.parse(value);
-            } catch (e) {
-                return null;
-            }
-        }
-
-        return value && typeof value === 'object' ? value : null;
+    function loadJson() {
+        if (dataPromise) return dataPromise;
+        dataPromise = fetch(DATA_URL + '?_=' + Date.now(), { cache: 'no-store' })
+            .then(function (response) {
+                if (!response.ok) throw new Error('Mirror returned HTTP ' + response.status);
+                return response.json();
+            })
+            .then(function (data) {
+                if (!data || data.schema_version !== 1 || !Array.isArray(data.movies) || !Array.isArray(data.tv)) {
+                    throw new Error('Unknown or incomplete JSON schema');
+                }
+                return data;
+            })
+            .catch(function (error) {
+                log('could not load mirror; no unverified fallback will be shown', error);
+                return { status: 'unavailable', movies: [], tv: [] };
+            });
+        return dataPromise;
     }
 
-    /*
-     * Загружаем опубликованный рейтинг.
-     * Если зеркало пустое или недоступно, не подменяем
-     * официальный Netflix Top 10 рейтингом популярности TMDB.
-     */
-    function loadMirror() {
-        if (mirrorPromise) return mirrorPromise;
-
-        mirrorPromise = new Promise(function (resolve) {
+    function tmdbGet(path, params) {
+        return new Promise(function (resolve) {
             try {
-                var request = new Lampa.Reguest();
-                var url = DATA_URL + '?_=' + Date.now();
-
-                request.silent(url, function (response) {
-                    var data = parseJson(response);
-
-                    if (!data ||
-                        data.schema_version !== 1 ||
-                        !Array.isArray(data.movies) ||
-                        !Array.isArray(data.tv)) {
-                        log('зеркало недоступно или JSON имеет неверный формат');
-                        resolve(null);
-                        return;
-                    }
-
-                    if (data.status !== 'published' ||
-                        (!data.movies.length && !data.tv.length)) {
-                        log('официальный рейтинг пока не опубликован в зеркале');
-                        resolve(null);
-                        return;
-                    }
-
-                    resolve(data);
-                }, function (error) {
-                    log(
-                        'не удалось загрузить JSON-зеркало. Проверь GitHub Pages.',
-                        error
-                    );
+                if (!window.Lampa || !Lampa.Api || !Lampa.Api.sources || !Lampa.Api.sources.tmdb ||
+                    typeof Lampa.Api.sources.tmdb.get !== 'function') {
                     resolve(null);
-                });
-            } catch (error) {
-                log('ошибка запроса зеркала', error);
+                    return;
+                }
+                var settled = false;
+                function done(value) {
+                    if (settled) return;
+                    settled = true;
+                    resolve(value || null);
+                }
+                Lampa.Api.sources.tmdb.get(path, params, done, function () { done(null); });
+            } catch (e) {
                 resolve(null);
             }
         });
-
-        return mirrorPromise;
     }
 
-    /*
-     * Поиск карточки в TMDB.
-     * Используются только точные совпадения названий и правильный тип.
-     */
-    function tmdbSearch(type, title, language) {
-        return new Promise(function (resolve) {
-            try {
-                if (!Lampa.TMDB ||
-                    !Lampa.TMDB.api ||
-                    !Lampa.TMDB.key ||
-                    !Lampa.Reguest) {
-                    resolve([]);
-                    return;
-                }
-
-                var path = 'search/' + type +
-                    '?query=' + encodeURIComponent(title) +
-                    '&include_adult=false' +
-                    '&language=' + encodeURIComponent(language) +
-                    '&api_key=' + encodeURIComponent(Lampa.TMDB.key());
-
-                var request = new Lampa.Reguest();
-
-                request.silent(
-                    Lampa.TMDB.api(path),
-                    function (json) {
-                        resolve(
-                            json && Array.isArray(json.results)
-                                ? json.results
-                                : []
-                        );
-                    },
-                    function () {
-                        resolve([]);
-                    }
-                );
-            } catch (e) {
-                resolve([]);
-            }
-        });
+    function candidateNames(item) {
+        return [item && item.title, item && item.name, item && item.original_title, item && item.original_name]
+            .filter(Boolean).map(normalizeTitle);
     }
 
-    function getNames(item) {
-        return [
-            item.title,
-            item.name,
-            item.original_title,
-            item.original_name
-        ].filter(Boolean).map(normalizeTitle);
-    }
-
-    function findExactMatch(results, title) {
+    function exactTitleMatch(results, title) {
         var expected = normalizeTitle(title);
-
         if (!expected) return null;
-
-        var matches = results.filter(function (item) {
-            return item &&
-                item.id &&
-                item.poster_path &&
-                getNames(item).indexOf(expected) !== -1;
-        });
-
-        if (!matches.length) return null;
-        if (matches.length === 1) return matches[0];
-
-        for (var i = 0; i < matches.length; i++) {
-            var original = normalizeTitle(
-                matches[i].original_title ||
-                matches[i].original_name
-            );
-
-            if (original === expected) return matches[i];
+        for (var i = 0; i < results.length; i++) {
+            var names = candidateNames(results[i]);
+            if (names.indexOf(expected) !== -1) return results[i];
         }
-
-        /*
-         * Если TMDB вернул неоднозначные совпадения,
-         * не выбираем фильм или сериал наугад.
-         */
         return null;
     }
 
-    function searchExact(type, title) {
-        return tmdbSearch(type, title, 'ru-RU').then(function (results) {
-            var match = findExactMatch(results, title);
-
-            if (match) return match;
-
-            return tmdbSearch(type, title, 'en-US').then(function (englishResults) {
-                return findExactMatch(englishResults, title);
-            });
-        });
-    }
-
-    function cacheKey(type, title) {
+    function mapCacheKey(type, title) {
         return type + '|' + normalizeTitle(title);
     }
 
-    function resolveMetadata(entry, type, weekEnding) {
-        var cache = storageGet(CACHE_KEY, {});
-        var key = cacheKey(type, entry.title);
+    function resolveMetadata(entry, type) {
+        var cache = getStorage(CACHE_KEY, {});
+        var key = mapCacheKey(type, entry.title);
         var saved = cache[key];
+        if (saved && saved.saved_at && Date.now() - saved.saved_at < CACHE_TTL && saved.item) {
+            return Promise.resolve(saved.item);
+        }
 
-        function decorate(meta) {
-            if (!meta) return null;
-
-            var item = copyObject(meta);
-
+        return tmdbGet('search/' + type, { query: entry.title, language: 'en-US', page: 1 }).then(function (data) {
+            var results = data && Array.isArray(data.results) ? data.results : [];
+            var match = exactTitleMatch(results, entry.title);
+            // The TSV has no release-year column. We therefore require an exact normalized
+            // title match and the right media endpoint; uncertain matches are omitted.
+            if (!match || !match.id || !match.poster_path) return null;
+            var date = type === 'movie' ? (match.release_date || '') : (match.first_air_date || '');
+            var item = {};
+            Object.keys(match).forEach(function (k) { item[k] = match[k]; });
+            item.id = String(match.id);
             item.media_type = type;
             item.type = 'tmdb';
             item.source = 'tmdb';
+            item.netflix_top10_rank = entry.rank;
+            item.netflix_top10_views = entry.weekly_views;
+            item.netflix_top10_category_rank = entry.category_rank;
+            item.netflix_top10_week_ending = entry.week_ending || null;
+            item.netflix_top10_season_title = entry.season_title || null;
+            item.netflix_top10_category = entry.source_category || '';
+            item.subTitle = 'NETFLIX TOP 10 · № ' + entry.rank;
+            item.release_date = date;
+            item.year = date ? date.slice(0, 4) : '';
+            item.overview = match.overview || '';
+            item.description = 'Netflix Global Top 10 · место № ' + entry.rank +
+                (entry.weekly_views ? '\nПросмотры за неделю: ' + Number(entry.weekly_views).toLocaleString('ru-RU') : '') +
+                (entry.season_title ? '\n' + entry.season_title : '') +
+                (item.overview ? '\n\n' + item.overview : '');
 
-            item.netflix_top10_rank = Number(entry.rank) || 0;
-            item.netflix_top10_category_rank =
-                Number(entry.category_rank) || 0;
-            item.netflix_top10_views =
-                Number(entry.weekly_views) || 0;
-            item.netflix_top10_category =
-                entry.source_category || '';
-            item.netflix_top10_week_ending =
-                weekEnding || null;
-            item.netflix_top10_season_title =
-                entry.season_title || null;
-
-            item.subTitle =
-                'NETFLIX TOP 10 · № ' +
-                item.netflix_top10_rank;
-
-            var views = item.netflix_top10_views
-                ? '\nПросмотры за неделю: ' +
-                    item.netflix_top10_views.toLocaleString('ru-RU')
-                : '';
-
-            var season = entry.season_title
-                ? '\n' + entry.season_title
-                : '';
-
-            var overview = meta.overview
-                ? '\n\n' + meta.overview
-                : '';
-
-            item.description =
-                'Netflix Global Top 10 · место № ' +
-                item.netflix_top10_rank +
-                views +
-                season +
-                overview;
-
+            cache[key] = { saved_at: Date.now(), item: item };
+            setStorage(CACHE_KEY, cache);
             return item;
-        }
-
-        if (saved &&
-            saved.saved_at &&
-            Date.now() - saved.saved_at < CACHE_TTL &&
-            saved.item) {
-            return Promise.resolve(decorate(saved.item));
-        }
-
-        if (metadataPending[key]) {
-            return metadataPending[key].then(decorate);
-        }
-
-        metadataPending[key] = searchExact(type, entry.title)
-            .then(function (match) {
-                if (!match) return null;
-
-                var cacheNow = storageGet(CACHE_KEY, {});
-                cacheNow[key] = {
-                    saved_at: Date.now(),
-                    item: copyObject(match)
-                };
-                storageSet(CACHE_KEY, cacheNow);
-
-                return match;
-            })
-            .catch(function () {
-                return null;
-            });
-
-        return metadataPending[key].then(function (meta) {
-            delete metadataPending[key];
-            return decorate(meta);
-        });
+        }).catch(function () { return null; });
     }
 
-    function makeRow(type, data) {
-        var entries = data[type === 'movie' ? 'movies' : 'tv'];
-
-        if (!Array.isArray(entries) || !entries.length) {
-            return Promise.resolve(null);
-        }
-
-        return Promise.all(
-            entries.slice(0, 10).map(function (entry) {
-                return resolveMetadata(entry, type, data.week_ending);
-            })
-        ).then(function (items) {
-            items = items.filter(Boolean).sort(function (a, b) {
-                return Number(a.netflix_top10_rank) -
-                    Number(b.netflix_top10_rank);
-            });
-
-            if (!items.length) return null;
-
-            return {
-                title: type === 'movie'
-                    ? MOVIE_ROW_TITLE
-                    : TV_ROW_TITLE,
-                results: items,
-                source: 'tmdb'
-            };
-        });
-    }
-
-    function getRows(types) {
-        return loadMirror().then(function (data) {
-            if (!data) return [];
-
-            return Promise.all(
-                types.map(function (type) {
-                    return makeRow(type, data);
-                })
-            ).then(function (rows) {
-                return rows.filter(function (row) {
-                    return !!(
-                        row &&
-                        row.results &&
-                        row.results.length
-                    );
+    function getRowItems(type) {
+        return loadJson().then(function (data) {
+            var entries = data && Array.isArray(data[type === 'movie' ? 'movies' : 'tv']) ?
+                data[type === 'movie' ? 'movies' : 'tv'] : [];
+            if (!entries.length) return [];
+            return Promise.all(entries.slice(0, 10).map(function (entry) {
+                // Keep the original Netflix position and the original category position distinct.
+                var row = {};
+                Object.keys(entry).forEach(function (key) { row[key] = entry[key]; });
+                return resolveMetadata(row, type).then(function (item) {
+                    if (!item) return null;
+                    item.netflix_top10_week_ending = data.week_ending || null;
+                    item.netflix_top10_rank = entry.rank;
+                    item.netflix_top10_category_rank = entry.category_rank;
+                    item.netflix_top10_views = entry.weekly_views;
+                    item.netflix_top10_season_title = entry.season_title || null;
+                    item.subTitle = 'NETFLIX TOP 10 · № ' + entry.rank;
+                    item.description = 'Netflix Global Top 10 · место № ' + entry.rank +
+                        (entry.weekly_views ? '\nПросмотры за неделю: ' + Number(entry.weekly_views).toLocaleString('ru-RU') : '') +
+                        (entry.season_title ? '\n' + entry.season_title : '') +
+                        (item.overview ? '\n\n' + item.overview : '');
+                    return item;
                 });
-            });
-        });
-    }
-
-    function insertRow(data, row, index) {
-        if (!row ||
-            !Array.isArray(row.results) ||
-            !row.results.length) {
-            return data;
-        }
-
-        if (data.some(function (existing) {
-            return existing && existing.title === row.title;
-        })) {
-            return data;
-        }
-
-        data.splice(Math.min(index, data.length), 0, row);
-        return data;
-    }
-
-    /*
-     * Главная страница:
-     * фильмы — примерно 4-я полка;
-     * сериалы — примерно 5-я полка.
-     */
-    function patchMain() {
-        var source = Lampa.Api &&
-            Lampa.Api.sources &&
-            Lampa.Api.sources.tmdb;
-
-        if (!source ||
-            typeof source.main !== 'function' ||
-            source.main.__nf10_patched) {
-            return;
-        }
-
-        var original = source.main;
-
-        var wrapped = function (params, oncomplete, onerror) {
-            var first = true;
-
-            return original.call(source, params, function (data) {
-                if (!first || !Array.isArray(data)) {
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(data);
-                    }
-                    return;
+            })).then(function (items) {
+                items = items.filter(Boolean).sort(function (a, b) {
+                    return Number(a.netflix_top10_rank) - Number(b.netflix_top10_rank);
+                });
+                if (window.Lampa && Lampa.Utils && typeof Lampa.Utils.addSource === 'function') {
+                    var wrapped = Lampa.Utils.addSource({ results: items }, 'tmdb');
+                    return wrapped && Array.isArray(wrapped.results) ? wrapped.results : items;
                 }
-
-                first = false;
-
-                getRows(['movie', 'tv']).then(function (rows) {
-                    var result = data.slice();
-
-                    rows.forEach(function (row) {
-                        insertRow(
-                            result,
-                            row,
-                            row.title === MOVIE_ROW_TITLE ? 3 : 4
-                        );
-                    });
-
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(result);
-                    }
-                }).catch(function (error) {
-                    log('ошибка добавления полок на главную', error);
-
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(data);
-                    }
-                });
-            }, onerror);
-        };
-
-        wrapped.__nf10_patched = true;
-        source.main = wrapped;
+                items.forEach(function (item) { item.source = 'tmdb'; });
+                return items;
+            });
+        });
     }
 
-    /*
-     * Категории:
-     * в «Фильмах» показываем только Top 10 фильмов;
-     * в «Сериалах» показываем только Top 10 сериалов.
-     */
-    function patchCategory() {
-        var source = Lampa.Api &&
-            Lampa.Api.sources &&
-            Lampa.Api.sources.tmdb;
-
-        if (!source ||
-            typeof source.category !== 'function' ||
-            source.category.__nf10_patched) {
-            return;
-        }
-
-        var original = source.category;
-
-        var wrapped = function (params, oncomplete, onerror) {
-            var type = params && params.url === 'movie'
-                ? 'movie'
-                : (params && params.url === 'tv' ? 'tv' : '');
-
-            if (!type) {
-                return original.call(source, params, oncomplete, onerror);
+    function categoryText(params, screen) {
+        var parts = [];
+        var keys = ['title', 'name', 'type', 'media_type', 'mediaType', 'url', 'source', 'component', 'section', 'category', 'method', 'id'];
+        function walk(obj, depth) {
+            if (!obj || depth > 3) return;
+            if (typeof obj === 'string' || typeof obj === 'number') return;
+            if (Array.isArray(obj)) {
+                obj.slice(0, 20).forEach(function (v) { if (typeof v === 'object') walk(v, depth + 1); });
+                return;
             }
-
-            var first = true;
-
-            return original.call(source, params, function (data) {
-                if (!first || !Array.isArray(data)) {
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(data);
-                    }
-                    return;
-                }
-
-                first = false;
-
-                getRows([type]).then(function (rows) {
-                    var result = data.slice();
-
-                    if (rows.length) {
-                        insertRow(result, rows[0], 3);
-                    }
-
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(result);
-                    }
-                }).catch(function (error) {
-                    log('ошибка добавления полки в категорию', error);
-
-                    if (typeof oncomplete === 'function') {
-                        oncomplete(data);
-                    }
-                });
-            }, onerror);
-        };
-
-        wrapped.__nf10_patched = true;
-        source.category = wrapped;
+            keys.forEach(function (key) {
+                var value = obj[key];
+                if (typeof value === 'string' || typeof value === 'number') parts.push(String(value));
+                else if (value && typeof value === 'object') walk(value, depth + 1);
+            });
+        }
+        walk(params, 0);
+        if (typeof screen === 'string') parts.push(screen);
+        else walk(screen, 0);
+        try {
+            if (Lampa.Activity && typeof Lampa.Activity.active === 'function') walk(Lampa.Activity.active(), 0);
+        } catch (e) {}
+        return parts.join(' ').toLowerCase();
     }
 
-    /*
-     * Крупные контурные цифры на постерах.
-     */
-    function addRankStyles() {
-        if (document.getElementById('nf10-only-style')) return;
+    function inferCategory(params, screen) {
+        var text = categoryText(params, screen);
+        var isTv = /\b(tv|series|serial|shows?)\b|сериал|телесериал|телепередач/.test(text);
+        var isMovie = /\b(movie|movies|film|films|cinema)\b|фильм|кино/.test(text);
+        if (isTv && !isMovie) return 'tv';
+        if (isMovie && !isTv) return 'movie';
+        return '';
+    }
 
+    function addContentRow(type, screenName, index) {
+        Lampa.ContentRows.add({
+            index: index,
+            screen: [screenName],
+            call: function (params, screen) {
+                return function (callback) {
+                    if (screenName === 'category' && inferCategory(params, screen) !== type) {
+                        callback({ title: '', results: [], total_results: 0, total_pages: 1, page: 1 });
+                        return;
+                    }
+                    getRowItems(type).then(function (items) {
+                        var title = type === 'movie' ? 'Фильмы Netflix Top 10' : 'Сериалы Netflix Top 10';
+                        callback({
+                            title: items.length ? title : '',
+                            results: items,
+                            total_results: items.length,
+                            total_pages: 1,
+                            page: 1,
+                            params: { source: 'tmdb' }
+                        });
+                    }).catch(function (error) {
+                        log('failed to build ' + type + ' row', error);
+                        callback({ title: '', results: [], total_results: 0, total_pages: 1, page: 1 });
+                    });
+                };
+            }
+        });
+    }
+
+    function unwrapDom(value) {
+        if (!value) return null;
+        if (value.nodeType === 1) return value;
+        if (value[0] && value[0].nodeType === 1) return value[0];
+        if (value.el && value.el.nodeType === 1) return value.el;
+        if (value.html && value.html.nodeType === 1) return value.html;
+        return null;
+    }
+
+    function findRank(data, depth) {
+        if (!data || depth > 3) return 0;
+        var direct = Number(data.netflix_top10_rank || data.netflixTop10Rank || 0);
+        if (direct >= 1 && direct <= 10) return direct;
+        return findRank(data.data, depth + 1) || findRank(data.movie, depth + 1) || findRank(data.object, depth + 1);
+    }
+
+    function attachRank(cardObject, eventObject, retry) {
+        var data = (cardObject && (cardObject.data || cardObject.movie)) ||
+            (eventObject && (eventObject.data || eventObject.movie || eventObject.object));
+        var rank = findRank(data, 0);
+        if (!rank) return;
+        var node = unwrapDom(cardObject && (cardObject.render ? cardObject.render() : (cardObject.html || cardObject.element))) ||
+            unwrapDom(eventObject && (eventObject.element || eventObject.html || eventObject.target));
+        if (!node && retry < 3) {
+            setTimeout(function () { attachRank(cardObject, eventObject, retry + 1); }, 60);
+            return;
+        }
+        if (!node) return;
+        var host = node.closest ? (node.closest('.card') || node) : node;
+        if (host.querySelector && host.querySelector('.nf10-rank-number[data-nf10-rank="' + rank + '"]')) return;
+        host.classList.add('nf10-rank-host');
+        var badge = document.createElement('span');
+        badge.className = 'nf10-rank-number';
+        badge.setAttribute('data-nf10-rank', String(rank));
+        badge.setAttribute('aria-hidden', 'true');
+        badge.textContent = String(rank);
+        host.insertBefore(badge, host.firstChild);
+    }
+
+    function installRankStyle() {
+        if (document.getElementById('nf10-rank-style')) return;
         var style = document.createElement('style');
-        style.id = 'nf10-only-style';
-
-        style.textContent =
-            '.nf10-only-rank{' +
-            'position:absolute;left:-.06em;bottom:-.14em;z-index:5;' +
-            'pointer-events:none;user-select:none;' +
-            'font-family:Arial,Helvetica,sans-serif;' +
-            'font-size:5.1em;font-weight:900;line-height:.9;' +
-            'letter-spacing:-.08em;color:transparent;' +
-            '-webkit-text-fill-color:transparent;' +
-            '-webkit-text-stroke:.035em rgba(225,229,235,.84);' +
-            'text-shadow:0 .04em .22em rgba(0,0,0,.75)}';
-
+        style.id = 'nf10-rank-style';
+        style.textContent = [
+            '.nf10-rank-host{position:relative!important;overflow:visible!important;isolation:isolate}',
+            '.nf10-rank-host .card__view{position:relative;z-index:1}',
+            '.nf10-rank-number{position:absolute;left:-.27em;bottom:-.12em;z-index:0;pointer-events:none;user-select:none;',
+            'font-family:Arial,Helvetica,sans-serif;font-size:clamp(5.5rem,13vw,11rem);font-weight:900;line-height:.78;letter-spacing:-.09em;',
+            'color:rgba(0,0,0,0);-webkit-text-fill-color:transparent;-webkit-text-stroke:2.7px rgba(220,224,230,.78);',
+            'text-shadow:0 3px 20px rgba(0,0,0,.55);opacity:.98}',
+            '@supports not (-webkit-text-stroke:1px white){.nf10-rank-number{color:rgba(220,224,230,.18);text-shadow:2px 0 #aaa,-2px 0 #aaa,0 2px #aaa,0 -2px #aaa}}'
+        ].join('');
         document.head.appendChild(style);
     }
 
-    function decorateRows() {
-        if (!window.jQuery && !window.$) return;
-
-        var $ = window.jQuery || window.$;
-
-        $('.items-line').each(function () {
-            var line = $(this);
-            var title = String(
-                line.find('.items-line__title').first().text() || ''
-            ).trim();
-
-            if (title !== MOVIE_ROW_TITLE &&
-                title !== TV_ROW_TITLE) {
-                return;
-            }
-
-            line.find('.card').each(function (index) {
-                var card = $(this);
-                var view = card.find('.card__view').first();
-
-                if (!view.length ||
-                    view.find('.nf10-only-rank').length) {
-                    return;
-                }
-
-                view.css('position', 'relative');
-                view.append(
-                    '<span class="nf10-only-rank" aria-hidden="true">' +
-                    (index + 1) +
-                    '</span>'
-                );
-            });
-        });
-    }
-
-    var decorateTimer = null;
-
-    function scheduleDecoration() {
-        if (decorateTimer) clearTimeout(decorateTimer);
-        decorateTimer = setTimeout(decorateRows, 120);
-    }
-
     function init() {
-        if (!window.Lampa ||
-            !Lampa.Api ||
-            !Lampa.Api.sources ||
-            !Lampa.Api.sources.tmdb) {
-            log('не найден API Lampa TMDB; плагин не запущен');
+        if (!window.Lampa || !Lampa.ContentRows || typeof Lampa.ContentRows.add !== 'function') {
+            log('Lampa.ContentRows is not available; this add-on requires Lampa 3.x');
             return;
         }
-
-        addRankStyles();
-        patchMain();
-        patchCategory();
-
-        if (window.MutationObserver && document.body) {
-            new MutationObserver(scheduleDecoration).observe(
-                document.body,
-                { childList: true, subtree: true }
-            );
+        installRankStyle();
+        if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
+            Lampa.Listener.follow('card', function (e) {
+                attachRank(e && (e.object || e.card || e.item), e || {}, 0);
+            });
         }
 
-        scheduleDecoration();
-        log('плагин запущен; зеркало: ' + DATA_URL);
+        // Main page: two consecutive rows roughly four/five rows below the top.
+        addContentRow('movie', 'main', 4);
+        addContentRow('tv', 'main', 5);
+        // Movie and TV category rows are filtered by the active category parameters.
+        addContentRow('movie', 'category', 4);
+        addContentRow('tv', 'category', 4);
+        log('ready; source mirror: ' + DATA_URL);
     }
 
-    if (window.appready) {
-        init();
-    } else if (
-        window.Lampa &&
-        Lampa.Listener &&
-        typeof Lampa.Listener.follow === 'function'
-    ) {
+    if (window.appready) init();
+    else if (window.Lampa && Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
         Lampa.Listener.follow('app', function (event) {
             if (event && event.type === 'ready') init();
         });
