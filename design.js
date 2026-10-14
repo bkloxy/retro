@@ -741,7 +741,6 @@
     'body.oldx-nodescr .explorer-card__descr{display:none !important}',
     'body.oldx-poster-xl .explorer-card__head,body.oldx-poster-xl [class*="explorer-card__head"]:not([class*="__head-"]){display:flex !important;flex-direction:column !important;align-items:flex-start !important}',
     'body.oldx-poster-xl .explorer-card__head-body{margin:.8em 0 0 0 !important;padding:0 !important}',
-    'body.oldx-poster-xl .explorer-card__head-img{width:100% !important;max-width:100% !important;margin:0 !important}',
     'body.oldx-poster-xl [class*="explorer-card"] [class*="head-img"]::before,body.oldx-poster-xl [class*="explorer-card"] [class*="head-img"]::after{display:none !important}'
   ].join('\n');
 
@@ -770,19 +769,20 @@
   function bigPoster() {
     try {
       var big = flag('oldx_bigposter', true);
-      var img = document.querySelector('[class*="explorer-card"] img');
-      if (!img) return;
-      var box = img.parentElement;
-      if (!box) return;
-      var head = box.parentElement;
-      var P = function (el, props) {
-        for (var k in props) {
-          if (big) el.style.setProperty(k, props[k], 'important'); else el.style.removeProperty(k);
-        }
-      };
-      P(box, { width: '85%', 'max-width': '85%', height: 'auto', 'aspect-ratio': '2 / 3', position: 'relative', margin: '0' });
-      P(img, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', 'object-fit': 'cover' });
-      if (head && head !== document.body) P(head, { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-start' });
+      var imgs = document.querySelectorAll('[class*="explorer-card"] img');
+      for (var i = 0; i < imgs.length; i++) {
+        var img = imgs[i], box = img.parentElement;
+        if (!box) continue;
+        var head = box.parentElement;
+        var P = function (el, props) {
+          for (var k in props) {
+            if (big) el.style.setProperty(k, props[k], 'important'); else el.style.removeProperty(k);
+          }
+        };
+        P(box, { width: 'min(26vw, 38vh)', 'min-width': 'min(26vw, 38vh)', 'max-width': 'none', height: 'auto', 'aspect-ratio': '2 / 3', position: 'relative', margin: '0', flex: 'none' });
+        P(img, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', 'object-fit': 'cover' });
+        if (head && head !== document.body) P(head, { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-start' });
+      }
     } catch (e) { log('poster', e); }
   }
 
@@ -820,34 +820,38 @@
     }
     return res;
   }
-  function metaRows(root) {
+  function metaIn(scope) {
+    var row = scope.querySelector('.full-descr__details');
+    if (!row) {
+      var ls = metaLabels(scope);
+      if (ls.length < 2) return;
+      var cur = ls[0];
+      while (cur.parentElement && cur.parentElement !== scope) {
+        var p = cur.parentElement, cnt = 0;
+        for (var k = 0; k < ls.length; k++) if (p.contains(ls[k])) cnt++;
+        if (cnt === ls.length && p.children.length >= 2) { row = p; break; }
+        cur = p;
+      }
+    }
+    if (!row || row.classList.contains('oldx-wrapped')) return;
+    row.classList.add('oldx-meta');
+    var desc = scope.querySelector('.full-descr__text, .full-start-new__descr, .full-start__descr');
+    if (desc && desc.parentNode && !row.contains(desc) && !desc.contains(row)) {
+      var wrap = document.createElement('div');
+      wrap.className = 'oldx-wrap';
+      desc.parentNode.insertBefore(wrap, desc);
+      wrap.appendChild(desc);   // описание слева, сверху
+      wrap.appendChild(row);    // плашка с данными справа от него
+      row.classList.add('oldx-wrapped');
+    }
+  }
+  function metaRows() {
     if (!flag('oldx_meta', true)) return;
     try {
-      var scope = document.querySelector('.full-start, .full-start-new, .full-descr') ? document : null;
-      if (!scope) return;
-      var row = document.querySelector('.full-descr__details');
-      if (!row) {
-        var ls = metaLabels(document);
-        if (ls.length < 2) return;
-        var cur = ls[0];
-        while (cur.parentElement && cur.parentElement !== document.body) {
-          var p = cur.parentElement, cnt = 0;
-          for (var k = 0; k < ls.length; k++) if (p.contains(ls[k])) cnt++;
-          if (cnt === ls.length && p.children.length >= 2) { row = p; break; }
-          cur = p;
-        }
-      }
-      if (!row || row.classList.contains('oldx-wrapped')) return;
-      row.classList.add('oldx-meta');
-      var desc = document.querySelector('.full-descr__text, .full-start-new__descr, .full-start__descr');
-      if (desc && desc.parentNode && !row.contains(desc) && !desc.contains(row)) {
-        var wrap = document.createElement('div');
-        wrap.className = 'oldx-wrap';
-        desc.parentNode.insertBefore(wrap, desc);
-        wrap.appendChild(desc);   // описание слева, сверху
-        wrap.appendChild(row);    // плашка с данными справа от него
-        row.classList.add('oldx-wrapped');
-      }
+      // в Lampa прошлые карточки остаются в DOM, поэтому обрабатываем ВСЕ экраны, а не первый найденный
+      var scopes = document.querySelectorAll('.activity');
+      if (!scopes.length) scopes = [document];
+      for (var i = 0; i < scopes.length; i++) metaIn(scopes[i]);
     } catch (e) { log('meta', e); }
   }
 
@@ -939,4 +943,3 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-
