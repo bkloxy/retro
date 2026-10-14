@@ -1,0 +1,613 @@
+/*
+ * Netflix Global Top 10 для Lampa.
+ * Только две полки Netflix Top 10. Без дополнительных элементов интерфейса.
+ * Данные: JSON-зеркало официального глобального рейтинга Netflix.
+ */
+(function () {
+    'use strict';
+
+    if (window.__netflixTop10OnlyLoaded) return;
+    window.__netflixTop10OnlyLoaded = true;
+
+    var DATA_URL = 'https://bkloxy.github.io/retro/netflix-top10.json';
+    var MOVIE_ROW_TITLE = 'Фильмы Netflix Top 10';
+    var TV_ROW_TITLE = 'Сериалы Netflix Top 10';
+    var CACHE_KEY = 'netflix_top10_tmdb_cache_v2';
+    var CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
+    var mirrorPromise = null;
+    var metadataPending = {};
+
+    function log(message, error) {
+        if (window.console && console.log) {
+            console.log('[Netflix Top 10] ' + message, error || '');
+        }
+    }
+
+    function copyObject(source) {
+        var target = {};
+        if (source && typeof source === 'object') {
+            Object.keys(source).forEach(function (key) {
+                target[key] = source[key];
+            });
+        }
+        return target;
+    }
+
+    var unicodeLettersAndNumbers = null;
+    try {
+        unicodeLettersAndNumbers =
+            new RegExp('[^\\p{L}\\p{N}]+', 'gu');
+    } catch (e) {}
+
+    function normalizeTitle(value) {
+        var text = String(value || '').toLowerCase();
+
+        try {
+            if (text.normalize) {
+                text = text.normalize('NFKD')
+                    .replace(/[\u0300-\u036f]/g, '');
+            }
+        } catch (e) {}
+
+        if (unicodeLettersAndNumbers) {
+            text = text.replace(unicodeLettersAndNumbers, ' ');
+        } else {
+            text = text.replace(
+                /[^a-z0-9а-яё\u00c0-\u024f\u1e00-\u1eff\u0600-\u06ff\u0900-\u097f\u0e00-\u0e7f\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+/gi,
+                ' '
+            );
+        }
+
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function storageGet(key, fallback) {
+        try {
+            var value = Lampa.Storage.get(key, fallback);
+            return value == null ? fallback : value;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function storageSet(key, value) {
+        try {
+            Lampa.Storage.set(key, value);
+        } catch (e) {}
+    }
+
+    function parseJson(value) {
+        if (typeof value === 'string') {
+            try {
+                return JSON.parse(value);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        return value && typeof value === 'object' ? value : null;
+    }
+
+    /*
+     * Загружаем опубликованный рейтинг.
+     * Если зеркало пустое или недоступно, не подменяем
+     * официальный Netflix Top 10 рейтингом популярности TMDB.
+     */
+    function loadMirror() {
+        if (mirrorPromise) return mirrorPromise;
+
+        mirrorPromise = new Promise(function (resolve) {
+            try {
+                var request = new Lampa.Reguest();
+                var url = DATA_URL + '?_=' + Date.now();
+
+                request.silent(url, function (response) {
+                    var data = parseJson(response);
+
+                    if (!data ||
+                        data.schema_version !== 1 ||
+                        !Array.isArray(data.movies) ||
+                        !Array.isArray(data.tv)) {
+                        log('зеркало недоступно или JSON имеет неверный формат');
+                        resolve(null);
+                        return;
+                    }
+
+                    if (data.status !== 'published' ||
+                        (!data.movies.length && !data.tv.length)) {
+                        log('официальный рейтинг пока не опубликован в зеркале');
+                        resolve(null);
+                        return;
+                    }
+
+                    resolve(data);
+                }, function (error) {
+                    log(
+                        'не удалось загрузить JSON-зеркало. Проверь GitHub Pages.',
+                        error
+                    );
+                    resolve(null);
+                });
+            } catch (error) {
+                log('ошибка запроса зеркала', error);
+                resolve(null);
+            }
+        });
+
+        return mirrorPromise;
+    }
+
+    /*
+     * Поиск карточки в TMDB.
+     * Используются только точные совпадения названий и правильный тип.
+     */
+    function tmdbSearch(type, title, language) {
+        return new Promise(function (resolve) {
+            try {
+                if (!Lampa.TMDB ||
+                    !Lampa.TMDB.api ||
+                    !Lampa.TMDB.key ||
+                    !Lampa.Reguest) {
+                    resolve([]);
+                    return;
+                }
+
+                var path = 'search/' + type +
+                    '?query=' + encodeURIComponent(title) +
+                    '&include_adult=false' +
+                    '&language=' + encodeURIComponent(language) +
+                    '&api_key=' + encodeURIComponent(Lampa.TMDB.key());
+
+                var request = new Lampa.Reguest();
+
+                request.silent(
+                    Lampa.TMDB.api(path),
+                    function (json) {
+                        resolve(
+                            json && Array.isArray(json.results)
+                                ? json.results
+                                : []
+                        );
+                    },
+                    function () {
+                        resolve([]);
+                    }
+                );
+            } catch (e) {
+                resolve([]);
+            }
+        });
+    }
+
+    function getNames(item) {
+        return [
+            item.title,
+            item.name,
+            item.original_title,
+            item.original_name
+        ].filter(Boolean).map(normalizeTitle);
+    }
+
+    function findExactMatch(results, title) {
+        var expected = normalizeTitle(title);
+
+        if (!expected) return null;
+
+        var matches = results.filter(function (item) {
+            return item &&
+                item.id &&
+                item.poster_path &&
+                getNames(item).indexOf(expected) !== -1;
+        });
+
+        if (!matches.length) return null;
+        if (matches.length === 1) return matches[0];
+
+        for (var i = 0; i < matches.length; i++) {
+            var original = normalizeTitle(
+                matches[i].original_title ||
+                matches[i].original_name
+            );
+
+            if (original === expected) return matches[i];
+        }
+
+        /*
+         * Если TMDB вернул неоднозначные совпадения,
+         * не выбираем фильм или сериал наугад.
+         */
+        return null;
+    }
+
+    function searchExact(type, title) {
+        return tmdbSearch(type, title, 'ru-RU').then(function (results) {
+            var match = findExactMatch(results, title);
+
+            if (match) return match;
+
+            return tmdbSearch(type, title, 'en-US').then(function (englishResults) {
+                return findExactMatch(englishResults, title);
+            });
+        });
+    }
+
+    function cacheKey(type, title) {
+        return type + '|' + normalizeTitle(title);
+    }
+
+    function resolveMetadata(entry, type, weekEnding) {
+        var cache = storageGet(CACHE_KEY, {});
+        var key = cacheKey(type, entry.title);
+        var saved = cache[key];
+
+        function decorate(meta) {
+            if (!meta) return null;
+
+            var item = copyObject(meta);
+
+            item.media_type = type;
+            item.type = 'tmdb';
+            item.source = 'tmdb';
+
+            item.netflix_top10_rank = Number(entry.rank) || 0;
+            item.netflix_top10_category_rank =
+                Number(entry.category_rank) || 0;
+            item.netflix_top10_views =
+                Number(entry.weekly_views) || 0;
+            item.netflix_top10_category =
+                entry.source_category || '';
+            item.netflix_top10_week_ending =
+                weekEnding || null;
+            item.netflix_top10_season_title =
+                entry.season_title || null;
+
+            item.subTitle =
+                'NETFLIX TOP 10 · № ' +
+                item.netflix_top10_rank;
+
+            var views = item.netflix_top10_views
+                ? '\nПросмотры за неделю: ' +
+                    item.netflix_top10_views.toLocaleString('ru-RU')
+                : '';
+
+            var season = entry.season_title
+                ? '\n' + entry.season_title
+                : '';
+
+            var overview = meta.overview
+                ? '\n\n' + meta.overview
+                : '';
+
+            item.description =
+                'Netflix Global Top 10 · место № ' +
+                item.netflix_top10_rank +
+                views +
+                season +
+                overview;
+
+            return item;
+        }
+
+        if (saved &&
+            saved.saved_at &&
+            Date.now() - saved.saved_at < CACHE_TTL &&
+            saved.item) {
+            return Promise.resolve(decorate(saved.item));
+        }
+
+        if (metadataPending[key]) {
+            return metadataPending[key].then(decorate);
+        }
+
+        metadataPending[key] = searchExact(type, entry.title)
+            .then(function (match) {
+                if (!match) return null;
+
+                var cacheNow = storageGet(CACHE_KEY, {});
+                cacheNow[key] = {
+                    saved_at: Date.now(),
+                    item: copyObject(match)
+                };
+                storageSet(CACHE_KEY, cacheNow);
+
+                return match;
+            })
+            .catch(function () {
+                return null;
+            });
+
+        return metadataPending[key].then(function (meta) {
+            delete metadataPending[key];
+            return decorate(meta);
+        });
+    }
+
+    function makeRow(type, data) {
+        var entries = data[type === 'movie' ? 'movies' : 'tv'];
+
+        if (!Array.isArray(entries) || !entries.length) {
+            return Promise.resolve(null);
+        }
+
+        return Promise.all(
+            entries.slice(0, 10).map(function (entry) {
+                return resolveMetadata(entry, type, data.week_ending);
+            })
+        ).then(function (items) {
+            items = items.filter(Boolean).sort(function (a, b) {
+                return Number(a.netflix_top10_rank) -
+                    Number(b.netflix_top10_rank);
+            });
+
+            if (!items.length) return null;
+
+            return {
+                title: type === 'movie'
+                    ? MOVIE_ROW_TITLE
+                    : TV_ROW_TITLE,
+                results: items,
+                source: 'tmdb'
+            };
+        });
+    }
+
+    function getRows(types) {
+        return loadMirror().then(function (data) {
+            if (!data) return [];
+
+            return Promise.all(
+                types.map(function (type) {
+                    return makeRow(type, data);
+                })
+            ).then(function (rows) {
+                return rows.filter(function (row) {
+                    return !!(
+                        row &&
+                        row.results &&
+                        row.results.length
+                    );
+                });
+            });
+        });
+    }
+
+    function insertRow(data, row, index) {
+        if (!row ||
+            !Array.isArray(row.results) ||
+            !row.results.length) {
+            return data;
+        }
+
+        if (data.some(function (existing) {
+            return existing && existing.title === row.title;
+        })) {
+            return data;
+        }
+
+        data.splice(Math.min(index, data.length), 0, row);
+        return data;
+    }
+
+    /*
+     * Главная страница:
+     * фильмы — примерно 4-я полка;
+     * сериалы — примерно 5-я полка.
+     */
+    function patchMain() {
+        var source = Lampa.Api &&
+            Lampa.Api.sources &&
+            Lampa.Api.sources.tmdb;
+
+        if (!source ||
+            typeof source.main !== 'function' ||
+            source.main.__nf10_patched) {
+            return;
+        }
+
+        var original = source.main;
+
+        var wrapped = function (params, oncomplete, onerror) {
+            var first = true;
+
+            return original.call(source, params, function (data) {
+                if (!first || !Array.isArray(data)) {
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(data);
+                    }
+                    return;
+                }
+
+                first = false;
+
+                getRows(['movie', 'tv']).then(function (rows) {
+                    var result = data.slice();
+
+                    rows.forEach(function (row) {
+                        insertRow(
+                            result,
+                            row,
+                            row.title === MOVIE_ROW_TITLE ? 3 : 4
+                        );
+                    });
+
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(result);
+                    }
+                }).catch(function (error) {
+                    log('ошибка добавления полок на главную', error);
+
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(data);
+                    }
+                });
+            }, onerror);
+        };
+
+        wrapped.__nf10_patched = true;
+        source.main = wrapped;
+    }
+
+    /*
+     * Категории:
+     * в «Фильмах» показываем только Top 10 фильмов;
+     * в «Сериалах» показываем только Top 10 сериалов.
+     */
+    function patchCategory() {
+        var source = Lampa.Api &&
+            Lampa.Api.sources &&
+            Lampa.Api.sources.tmdb;
+
+        if (!source ||
+            typeof source.category !== 'function' ||
+            source.category.__nf10_patched) {
+            return;
+        }
+
+        var original = source.category;
+
+        var wrapped = function (params, oncomplete, onerror) {
+            var type = params && params.url === 'movie'
+                ? 'movie'
+                : (params && params.url === 'tv' ? 'tv' : '');
+
+            if (!type) {
+                return original.call(source, params, oncomplete, onerror);
+            }
+
+            var first = true;
+
+            return original.call(source, params, function (data) {
+                if (!first || !Array.isArray(data)) {
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(data);
+                    }
+                    return;
+                }
+
+                first = false;
+
+                getRows([type]).then(function (rows) {
+                    var result = data.slice();
+
+                    if (rows.length) {
+                        insertRow(result, rows[0], 3);
+                    }
+
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(result);
+                    }
+                }).catch(function (error) {
+                    log('ошибка добавления полки в категорию', error);
+
+                    if (typeof oncomplete === 'function') {
+                        oncomplete(data);
+                    }
+                });
+            }, onerror);
+        };
+
+        wrapped.__nf10_patched = true;
+        source.category = wrapped;
+    }
+
+    /*
+     * Крупные контурные цифры на постерах.
+     */
+    function addRankStyles() {
+        if (document.getElementById('nf10-only-style')) return;
+
+        var style = document.createElement('style');
+        style.id = 'nf10-only-style';
+
+        style.textContent =
+            '.nf10-only-rank{' +
+            'position:absolute;left:-.06em;bottom:-.14em;z-index:5;' +
+            'pointer-events:none;user-select:none;' +
+            'font-family:Arial,Helvetica,sans-serif;' +
+            'font-size:5.1em;font-weight:900;line-height:.9;' +
+            'letter-spacing:-.08em;color:transparent;' +
+            '-webkit-text-fill-color:transparent;' +
+            '-webkit-text-stroke:.035em rgba(225,229,235,.84);' +
+            'text-shadow:0 .04em .22em rgba(0,0,0,.75)}';
+
+        document.head.appendChild(style);
+    }
+
+    function decorateRows() {
+        if (!window.jQuery && !window.$) return;
+
+        var $ = window.jQuery || window.$;
+
+        $('.items-line').each(function () {
+            var line = $(this);
+            var title = String(
+                line.find('.items-line__title').first().text() || ''
+            ).trim();
+
+            if (title !== MOVIE_ROW_TITLE &&
+                title !== TV_ROW_TITLE) {
+                return;
+            }
+
+            line.find('.card').each(function (index) {
+                var card = $(this);
+                var view = card.find('.card__view').first();
+
+                if (!view.length ||
+                    view.find('.nf10-only-rank').length) {
+                    return;
+                }
+
+                view.css('position', 'relative');
+                view.append(
+                    '<span class="nf10-only-rank" aria-hidden="true">' +
+                    (index + 1) +
+                    '</span>'
+                );
+            });
+        });
+    }
+
+    var decorateTimer = null;
+
+    function scheduleDecoration() {
+        if (decorateTimer) clearTimeout(decorateTimer);
+        decorateTimer = setTimeout(decorateRows, 120);
+    }
+
+    function init() {
+        if (!window.Lampa ||
+            !Lampa.Api ||
+            !Lampa.Api.sources ||
+            !Lampa.Api.sources.tmdb) {
+            log('не найден API Lampa TMDB; плагин не запущен');
+            return;
+        }
+
+        addRankStyles();
+        patchMain();
+        patchCategory();
+
+        if (window.MutationObserver && document.body) {
+            new MutationObserver(scheduleDecoration).observe(
+                document.body,
+                { childList: true, subtree: true }
+            );
+        }
+
+        scheduleDecoration();
+        log('плагин запущен; зеркало: ' + DATA_URL);
+    }
+
+    if (window.appready) {
+        init();
+    } else if (
+        window.Lampa &&
+        Lampa.Listener &&
+        typeof Lampa.Listener.follow === 'function'
+    ) {
+        Lampa.Listener.follow('app', function (event) {
+            if (event && event.type === 'ready') init();
+        });
+    }
+})();
