@@ -734,7 +734,9 @@
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
     '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2em;width:100%;box-sizing:border-box}',
     '.oldx-wrap > :first-child{flex:1 1 auto;min-width:0}',
-    '.oldx-wrap > .oldx-meta{flex:0 0 auto}',
+    '.oldx-wrap > .oldx-meta{flex:0 0 auto;margin-right:3em !important}',
+    '.oldx-wrap{margin-bottom:.4em !important}',
+    'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
     '.oldx-meta > *{margin:0 !important}',
 
     /* экран выбора озвучки (Онлайн Мод) */
@@ -758,7 +760,7 @@
     setCls(b, 'oldx-r-sharp', sq && !slight);
     setCls(b, 'oldx-nocomm', flag('oldx_nocomm', true));
     setCls(b, 'oldx-nodescr', flag('oldx_nodescr', true));
-    var big = flag('oldx_bigposter', true);
+    var big = String(field('oldx_psize', 'm')) !== 'off';
     setCls(b, 'oldx-poster-xl', big);
     bigPoster();
     killComments(document);
@@ -768,7 +770,10 @@
 
   function bigPoster() {
     try {
-      var big = flag('oldx_bigposter', true);
+      var ps = String(field('oldx_psize', 'm'));
+      var big = ps !== 'off';
+      var SZ = { s: 'min(16vw, 28vh)', m: 'min(21vw, 34vh)', l: 'min(26vw, 38vh)', xl: 'min(31vw, 44vh)' };
+      var w = SZ[ps] || SZ.m;
       var imgs = document.querySelectorAll('[class*="explorer-card"] img');
       for (var i = 0; i < imgs.length; i++) {
         var img = imgs[i], box = img.parentElement;
@@ -779,7 +784,7 @@
             if (big) el.style.setProperty(k, props[k], 'important'); else el.style.removeProperty(k);
           }
         };
-        P(box, { width: 'min(26vw, 38vh)', 'min-width': 'min(26vw, 38vh)', 'max-width': 'none', height: 'auto', 'aspect-ratio': '2 / 3', position: 'relative', margin: '0', flex: 'none' });
+        P(box, { width: w, 'min-width': w, 'max-width': 'none', height: 'auto', 'aspect-ratio': '2 / 3', position: 'relative', margin: '0', flex: 'none' });
         P(img, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', 'object-fit': 'cover' });
         if (head && head !== document.body) P(head, { display: 'flex', 'flex-direction': 'column', 'align-items': 'flex-start' });
       }
@@ -822,6 +827,10 @@
   }
   function metaIn(scope) {
     var row = scope.querySelector('.full-descr__details');
+    if (!row) {
+      var inf = scope.querySelector('.full-descr__info');
+      if (inf && inf.parentElement) row = inf.parentElement;
+    }
     if (!row) {
       var ls = metaLabels(scope);
       if (ls.length < 2) return;
@@ -905,7 +914,12 @@
       T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
       T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
       T('oldx_slight', 'Слегка скруглённые постеры', 'Небольшое скругление углов вместо прямых (если включено вместе с квадратными, побеждает скругление)', false);
-      T('oldx_bigposter', 'Большой постер при выборе озвучки', 'Постер на всю ширину левой колонки, название под ним', true);
+      Lampa.SettingsApi.addParam({
+        component: 'oldui',
+        param: { name: 'oldx_psize', type: 'select', values: { off: 'Как в Lampa', s: 'Маленький', m: 'Средний', l: 'Большой', xl: 'Очень большой' }, default: 'm' },
+        field: { name: 'Размер постера при выборе озвучки', description: 'Экран «Онлайн Мод» / выбор балансера' },
+        onChange: applyClasses
+      });
     } catch (e) { log('settings', e); }
   }
 
@@ -943,3 +957,4 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
