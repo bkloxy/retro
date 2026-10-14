@@ -10,7 +10,7 @@
     window.__lampaNetflixGlobalTop10Loaded = true;
 
     var PLUGIN = 'Netflix Global Top 10';
-    var DATA_URL = 'https://bkloxy.github.io/retro/netflix-top10.json';
+    var DATA_URL = 'https://bkloxy.github.io/netflix-top10/netflix-top10.json';
     var CACHE_KEY = 'netflix_top10_tmdb_map_v1';
     var CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
     var dataPromise = null;
