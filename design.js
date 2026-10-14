@@ -693,7 +693,7 @@
  *  - пункт «Поиск» первым в боковом меню
  *  - экран выбора озвучки (Онлайн Мод): прямые углы у постера, постер крупнее, без описания
  *  - скругление постеров: прямые / слегка / как в Lampa (по умолчанию прямые)
- * Настройки: Настройки -> «Мои настройки»
+ * Настройки: Настройки -> «Старый дизайн»
  */
 (function () {
   'use strict';
@@ -732,15 +732,17 @@
     /* вертикальный блок данных справа */
     '.oldx-meta{display:flex !important;flex-direction:column !important;align-items:flex-start !important;gap:.9em !important;',
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
-    '.oldx-meta.oldx-moved{float:right;margin:0 0 1em 2em !important}',
+    '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2em;width:100%;box-sizing:border-box}',
+    '.oldx-wrap > :first-child{flex:1 1 auto;min-width:0}',
+    '.oldx-wrap > .oldx-meta{flex:0 0 auto}',
     '.oldx-meta > *{margin:0 !important}',
 
     /* экран выбора озвучки (Онлайн Мод) */
     'body.oldx-nodescr .explorer-card__descr{display:none !important}',
-    'body.oldx-poster-l .explorer-card__head,body.oldx-poster-xl .explorer-card__head{display:flex;flex-direction:column;align-items:flex-start}',
-    'body.oldx-poster-l .explorer-card__head-body,body.oldx-poster-xl .explorer-card__head-body{margin:.8em 0 0 0 !important;padding:0 !important}',
-    'body.oldx-poster-l .explorer-card__head-img{width:14em !important;max-width:100% !important}',
-    'body.oldx-poster-xl .explorer-card__head-img{width:100% !important;max-width:100% !important}'
+    'body.oldx-poster-xl .explorer-card__head,body.oldx-poster-xl [class*="explorer-card__head"]:not([class*="__head-"]){display:flex !important;flex-direction:column !important;align-items:flex-start !important}',
+    'body.oldx-poster-xl .explorer-card__head-body{margin:.8em 0 0 0 !important;padding:0 !important}',
+    'body.oldx-poster-xl .explorer-card__head-img{width:100% !important;max-width:100% !important;margin:0 !important}',
+    'body.oldx-poster-xl .explorer-card__head-img img{width:100% !important;object-fit:cover}'
   ].join('\n');
 
   function injectCss() {
@@ -752,16 +754,34 @@
 
   /* ---------- body classes ---------- */
   function applyClasses() {
-    var b = document.body, r = String(field('oldx_radius', 'sharp')), p = String(field('oldx_poster', 'l'));
-    setCls(b, 'oldx-r-sharp', r === 'sharp');
-    setCls(b, 'oldx-r-slight', r === 'slight');
+    var b = document.body, slight = flag('oldx_slight', false), sq = flag('oldui_square', true);
+    setCls(b, 'oldx-r-slight', slight);
+    setCls(b, 'oldx-r-sharp', sq && !slight);
     setCls(b, 'oldx-nocomm', flag('oldx_nocomm', true));
     setCls(b, 'oldx-nodescr', flag('oldx_nodescr', true));
-    setCls(b, 'oldx-poster-l', p === 'l');
-    setCls(b, 'oldx-poster-xl', p === 'xl');
+    var big = flag('oldx_bigposter', true);
+    setCls(b, 'oldx-poster-xl', big);
+    bigPoster();
     killComments(document);
     menuSearch();
     metaRows(document);
+  }
+
+  function bigPoster() {
+    try {
+      var big = flag('oldx_bigposter', true);
+      var imgs = document.querySelectorAll('.explorer-card__head-img');
+      for (var i = 0; i < imgs.length; i++) {
+        var st = imgs[i].style;
+        if (big) { st.setProperty('width', '100%', 'important'); st.setProperty('max-width', '100%', 'important'); }
+        else { st.removeProperty('width'); st.removeProperty('max-width'); }
+        var par = imgs[i].parentElement;
+        if (par && par.className.indexOf('explorer-card__head') !== -1) {
+          if (big) { par.style.setProperty('display', 'flex', 'important'); par.style.setProperty('flex-direction', 'column', 'important'); par.style.setProperty('align-items', 'flex-start', 'important'); }
+          else { par.style.removeProperty('display'); par.style.removeProperty('flex-direction'); par.style.removeProperty('align-items'); }
+        }
+      }
+    } catch (e) { log('poster', e); }
   }
 
   /* ---------- 1. комментарии ---------- */
@@ -806,20 +826,33 @@
         if (p.children.length >= 3 && p.contains(rel)) { row = p; break; }
         cur = p;
       }
-      if (!row || row.classList.contains('oldx-meta')) return;
+      if (!row || row.classList.contains('oldx-wrapped')) return;
       row.classList.add('oldx-meta');
       var desc = document.querySelector('.full-descr__text, .full-start-new__descr, .full-start__descr');
       if (desc && desc.parentNode && !row.contains(desc) && !desc.contains(row)) {
-        desc.parentNode.insertBefore(row, desc);
-        row.classList.add('oldx-moved');
+        var wrap = document.createElement('div');
+        wrap.className = 'oldx-wrap';
+        desc.parentNode.insertBefore(wrap, desc);
+        wrap.appendChild(desc);   // описание слева, сверху
+        wrap.appendChild(row);    // плашка с данными справа от него
+        row.classList.add('oldx-wrapped');
       }
     } catch (e) { log('meta', e); }
   }
 
   /* ---------- 3. «Поиск» первым в меню ---------- */
   var SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  var lastOpen = 0;
   function openSearch() {
+    var now = Date.now();
+    if (now - lastOpen < 800) return;   // защита от двойного срабатывания
+    lastOpen = now;
     try {
+      var act = Lampa.Activity.active();
+      if (act && act.component === 'search') return;
+      // то же самое, что нажатие на лупу вверху — так поиск открывается ровно один раз
+      var hb = document.querySelector('.open--search');
+      if (hb && window.$) { window.$(hb).trigger('hover:enter'); return; }
       if (Lampa.Search && Lampa.Search.open) { Lampa.Search.open(); return; }
       Lampa.Activity.push({ url: '', title: 'Поиск', component: 'search', page: 1 });
     } catch (e) { log('search', e); }
@@ -837,7 +870,6 @@
       li.setAttribute('data-oldx', 'search');
       li.innerHTML = '<div class="menu__ico">' + SEARCH_SVG + '</div><div class="menu__text">Поиск</div>';
       if (window.$) window.$(li).on('hover:enter', openSearch);
-      li.addEventListener('click', openSearch);
       list.insertBefore(li, list.firstChild);
     } catch (e) { log('menu', e); }
   }
@@ -845,14 +877,9 @@
   /* ---------- настройки ---------- */
   function addSettings() {
     try {
-      Lampa.SettingsApi.addComponent({
-        component: 'oldx',
-        name: 'Мои настройки',
-        icon: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="3" width="16" height="18" stroke="currentColor" stroke-width="2"/></svg>'
-      });
       var T = function (name, title, descr, def) {
         Lampa.SettingsApi.addParam({
-          component: 'oldx',
+          component: 'oldui',
           param: { name: name, type: 'trigger', default: def },
           field: { name: title, description: descr },
           onChange: applyClasses
@@ -862,18 +889,8 @@
       T('oldx_meta', 'Данные вертикально справа', 'Дата релиза, бюджет, сборы, страны — столбиком справа от описания', true);
       T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
       T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
-      Lampa.SettingsApi.addParam({
-        component: 'oldx',
-        param: { name: 'oldx_poster', type: 'select', values: { m: 'Обычный', l: 'Большой', xl: 'Очень большой' }, default: 'l' },
-        field: { name: 'Размер постера при выборе озвучки', description: 'Экран «Онлайн Мод» / выбор балансера' },
-        onChange: applyClasses
-      });
-      Lampa.SettingsApi.addParam({
-        component: 'oldx',
-        param: { name: 'oldx_radius', type: 'select', values: { sharp: 'Прямые углы', slight: 'Слегка скруглённые', native: 'Как в Lampa' }, default: 'sharp' },
-        field: { name: 'Углы постеров', description: 'Применяется везде: карточки, страница фильма, выбор озвучки' },
-        onChange: applyClasses
-      });
+      T('oldx_slight', 'Слегка скруглённые постеры', 'Небольшое скругление углов вместо прямых (если включено вместе с квадратными, побеждает скругление)', false);
+      T('oldx_bigposter', 'Большой постер при выборе озвучки', 'Постер на всю ширину левой колонки, название под ним', true);
     } catch (e) { log('settings', e); }
   }
 
@@ -887,6 +904,7 @@
       killComments(document);
       menuSearch();
       metaRows(document);
+      bigPoster();
     });
   }
   function start() {
@@ -901,6 +919,7 @@
           }
         });
       } catch (e) {}
+      try { Lampa.Storage.listener.follow('change', function () { setTimeout(applyClasses, 50); }); } catch (e) {}
       new MutationObserver(tick).observe(document.body, { childList: true, subtree: true });
       log('ready');
     } catch (e) { log('start failed', e); }
@@ -909,3 +928,6 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
+      
+            
