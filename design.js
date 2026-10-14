@@ -685,3 +685,227 @@
         }, 250);
     }
 })();
+
+/*
+ * Lampa: личные настройки интерфейса (oldx)
+ *  - убрать «Комментарии» в карточке фильма
+ *  - блок «Дата релиза / Бюджет / Сборы / Страны» вертикально, справа
+ *  - пункт «Поиск» первым в боковом меню
+ *  - экран выбора озвучки (Онлайн Мод): прямые углы у постера, постер крупнее, без описания
+ *  - скругление постеров: прямые / слегка / как в Lampa (по умолчанию прямые)
+ * Настройки: Настройки -> «Мои настройки»
+ */
+(function () {
+  'use strict';
+  if (window.oldx_plugin_ready) return;
+  window.oldx_plugin_ready = true;
+
+  function log() { try { console.log.apply(console, ['[oldx]'].concat([].slice.call(arguments))); } catch (e) {} }
+  function setCls(n, c, s) { if (n && n.classList.contains(c) !== !!s) n.classList.toggle(c, !!s); }
+  function field(name, def) {
+    try {
+      var v = Lampa.Storage.field(name);
+      return (v === undefined || v === null || v === '') ? def : v;
+    } catch (e) { return def; }
+  }
+  function flag(name, def) { var v = field(name, def); return v === true || v === 'true'; }
+  function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/:$/, ''); }
+
+  /* ---------- CSS ---------- */
+  var POSTERS = [
+    '.card .card__view', '.card .card__img', '.card-watched', '.card__quality', '.card__type',
+    '.full-start__poster', '.full-start-new__poster', '.full-start__img', '.full-start-new__img', '.full--poster',
+    '[class*="full-start"] [class*="poster"]', '[class*="full-start"] [class*="poster"] img',
+    '.explorer-card__head-img', '.explorer-card__head-img img', '.explorer-card__head-img::after', '.explorer-card__head-img::before'
+  ];
+  function radiusCss(cls, val) {
+    return POSTERS.map(function (s) { return 'body.' + cls + ' ' + s; }).join(',') + '{border-radius:' + val + ' !important}';
+  }
+  var CSS = [
+    radiusCss('oldx-r-sharp', '0'),
+    radiusCss('oldx-r-slight', '.35em'),
+
+    /* без комментариев */
+    'body.oldx-nocomm .full-review,body.oldx-nocomm .full-review-add,body.oldx-nocomm .full-reviews{display:none !important}',
+    'body.oldx-nocomm .items-line:has(.full-review),body.oldx-nocomm .items-line:has(.full-review-add){display:none !important}',
+
+    /* вертикальный блок данных справа */
+    '.oldx-meta{display:flex !important;flex-direction:column !important;align-items:flex-start !important;gap:.9em !important;',
+    'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
+    '.oldx-meta.oldx-moved{float:right;margin:0 0 1em 2em !important}',
+    '.oldx-meta > *{margin:0 !important}',
+
+    /* экран выбора озвучки (Онлайн Мод) */
+    'body.oldx-nodescr .explorer-card__descr{display:none !important}',
+    'body.oldx-poster-l .explorer-card__head,body.oldx-poster-xl .explorer-card__head{display:flex;flex-direction:column;align-items:flex-start}',
+    'body.oldx-poster-l .explorer-card__head-body,body.oldx-poster-xl .explorer-card__head-body{margin:.8em 0 0 0 !important;padding:0 !important}',
+    'body.oldx-poster-l .explorer-card__head-img{width:14em !important;max-width:100% !important}',
+    'body.oldx-poster-xl .explorer-card__head-img{width:100% !important;max-width:100% !important}'
+  ].join('\n');
+
+  function injectCss() {
+    var st = document.createElement('style');
+    st.id = 'oldx-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  /* ---------- body classes ---------- */
+  function applyClasses() {
+    var b = document.body, r = String(field('oldx_radius', 'sharp')), p = String(field('oldx_poster', 'l'));
+    setCls(b, 'oldx-r-sharp', r === 'sharp');
+    setCls(b, 'oldx-r-slight', r === 'slight');
+    setCls(b, 'oldx-nocomm', flag('oldx_nocomm', true));
+    setCls(b, 'oldx-nodescr', flag('oldx_nodescr', true));
+    setCls(b, 'oldx-poster-l', p === 'l');
+    setCls(b, 'oldx-poster-xl', p === 'xl');
+    killComments(document);
+    menuSearch();
+    metaRows(document);
+  }
+
+  /* ---------- 1. комментарии ---------- */
+  function killComments(root) {
+    if (!flag('oldx_nocomm', true)) return;
+    try {
+      var n = root.querySelectorAll('.full-review, .full-review-add, .full-reviews');
+      for (var i = 0; i < n.length; i++) {
+        var line = n[i].closest('.items-line') || n[i].closest('.full-reviews');
+        var el = line || n[i];
+        if (el.parentNode) el.parentNode.removeChild(el);
+      }
+      var titles = root.querySelectorAll('.items-line__title');
+      for (var j = 0; j < titles.length; j++) {
+        var t = norm(titles[j].textContent);
+        if (t === 'комментарии' || t === 'comments') {
+          var ln = titles[j].closest('.items-line');
+          if (ln && ln.parentNode) ln.parentNode.removeChild(ln);
+        }
+      }
+    } catch (e) { log('comments', e); }
+  }
+
+  /* ---------- 2. вертикальный блок данных ---------- */
+  function leafLabel(root, names) {
+    var all = root.querySelectorAll('div,span');
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].children.length === 0 && names.indexOf(norm(all[i].textContent)) !== -1) return all[i];
+    }
+    return null;
+  }
+  function metaRows(root) {
+    if (!flag('oldx_meta', true)) return;
+    try {
+      var scope = root.querySelector ? (root.querySelector('.full-start, .full-start-new, .full-descr') ? root : document) : document;
+      var rel = leafLabel(scope, ['дата релиза', 'дата выхода', 'release date']);
+      var bud = leafLabel(scope, ['бюджет', 'budget']);
+      if (!rel || !bud) return;
+      var cur = bud, row = null;
+      while (cur.parentElement && cur.parentElement !== document.body) {
+        var p = cur.parentElement;
+        if (p.children.length >= 3 && p.contains(rel)) { row = p; break; }
+        cur = p;
+      }
+      if (!row || row.classList.contains('oldx-meta')) return;
+      row.classList.add('oldx-meta');
+      var desc = document.querySelector('.full-descr__text, .full-start-new__descr, .full-start__descr');
+      if (desc && desc.parentNode && !row.contains(desc) && !desc.contains(row)) {
+        desc.parentNode.insertBefore(row, desc);
+        row.classList.add('oldx-moved');
+      }
+    } catch (e) { log('meta', e); }
+  }
+
+  /* ---------- 3. «Поиск» первым в меню ---------- */
+  var SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  function openSearch() {
+    try {
+      if (Lampa.Search && Lampa.Search.open) { Lampa.Search.open(); return; }
+      Lampa.Activity.push({ url: '', title: 'Поиск', component: 'search', page: 1 });
+    } catch (e) { log('search', e); }
+  }
+  function menuSearch() {
+    try {
+      var list = document.querySelector('.menu .menu__list');
+      var mine = document.querySelector('.menu [data-oldx="search"]');
+      if (!flag('oldx_search', true)) { if (mine && mine.parentNode) mine.parentNode.removeChild(mine); return; }
+      if (!list) return;
+      if (mine) { if (list.firstElementChild !== mine) list.insertBefore(mine, list.firstChild); return; }
+      var li = document.createElement('li');
+      li.className = 'menu__item selector';
+      li.setAttribute('data-action', 'oldx_search');
+      li.setAttribute('data-oldx', 'search');
+      li.innerHTML = '<div class="menu__ico">' + SEARCH_SVG + '</div><div class="menu__text">Поиск</div>';
+      if (window.$) window.$(li).on('hover:enter', openSearch);
+      li.addEventListener('click', openSearch);
+      list.insertBefore(li, list.firstChild);
+    } catch (e) { log('menu', e); }
+  }
+
+  /* ---------- настройки ---------- */
+  function addSettings() {
+    try {
+      Lampa.SettingsApi.addComponent({
+        component: 'oldx',
+        name: 'Мои настройки',
+        icon: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="3" width="16" height="18" stroke="currentColor" stroke-width="2"/></svg>'
+      });
+      var T = function (name, title, descr, def) {
+        Lampa.SettingsApi.addParam({
+          component: 'oldx',
+          param: { name: name, type: 'trigger', default: def },
+          field: { name: title, description: descr },
+          onChange: applyClasses
+        });
+      };
+      T('oldx_nocomm', 'Скрыть комментарии', 'Убирает раздел «Комментарии» в карточке фильма/сериала', true);
+      T('oldx_meta', 'Данные вертикально справа', 'Дата релиза, бюджет, сборы, страны — столбиком справа от описания', true);
+      T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
+      T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
+      Lampa.SettingsApi.addParam({
+        component: 'oldx',
+        param: { name: 'oldx_poster', type: 'select', values: { m: 'Обычный', l: 'Большой', xl: 'Очень большой' }, default: 'l' },
+        field: { name: 'Размер постера при выборе озвучки', description: 'Экран «Онлайн Мод» / выбор балансера' },
+        onChange: applyClasses
+      });
+      Lampa.SettingsApi.addParam({
+        component: 'oldx',
+        param: { name: 'oldx_radius', type: 'select', values: { sharp: 'Прямые углы', slight: 'Слегка скруглённые', native: 'Как в Lampa' }, default: 'sharp' },
+        field: { name: 'Углы постеров', description: 'Применяется везде: карточки, страница фильма, выбор озвучки' },
+        onChange: applyClasses
+      });
+    } catch (e) { log('settings', e); }
+  }
+
+  /* ---------- запуск ---------- */
+  var pending = false;
+  function tick() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () {
+      pending = false;
+      killComments(document);
+      menuSearch();
+      metaRows(document);
+    });
+  }
+  function start() {
+    try {
+      injectCss();
+      addSettings();
+      applyClasses();
+      try {
+        Lampa.Listener.follow('full', function (e) {
+          if (e && (e.type === 'complite' || e.type === 'complete')) {
+            [0, 300, 900].forEach(function (d) { setTimeout(tick, d); });
+          }
+        });
+      } catch (e) {}
+      new MutationObserver(tick).observe(document.body, { childList: true, subtree: true });
+      log('ready');
+    } catch (e) { log('start failed', e); }
+  }
+
+  if (window.appready) start();
+  else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+})();
