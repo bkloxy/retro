@@ -734,7 +734,7 @@
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
     '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2.5em;width:100%;box-sizing:border-box}',
     '.oldx-wrap > :first-child{flex:1 1 0 !important;min-width:0 !important;width:auto !important;max-width:none !important;overflow-wrap:break-word}',
-    '.oldx-wrap > .oldx-meta{flex:0 0 13em !important;width:13em !important;max-width:13em !important;margin:0 3em 0 0 !important;box-sizing:border-box}',
+    '.oldx-wrap > .oldx-meta{flex:0 0 13em !important;width:13em !important;max-width:13em !important;margin:0 var(--oldx-x,3em) 0 0 !important;transform:translateY(var(--oldx-y,0em));gap:var(--oldx-gap,.9em) !important;box-sizing:border-box}',
     '.oldx-wrap{margin-bottom:.4em !important}',
     'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
     '.oldx-meta > *{margin:0 !important}',
@@ -760,6 +760,9 @@
     setCls(b, 'oldx-r-sharp', sq && !slight);
     setCls(b, 'oldx-nocomm', flag('oldx_nocomm', true));
     setCls(b, 'oldx-nodescr', flag('oldx_nodescr', true));
+    b.style.setProperty('--oldx-x', field('oldx_mx', '3') + 'em');
+    b.style.setProperty('--oldx-y', field('oldx_my', '0') + 'em');
+    b.style.setProperty('--oldx-gap', field('oldx_mgap', '0.9') + 'em');
     var big = String(field('oldx_psize', 'm')) !== 'off';
     setCls(b, 'oldx-poster-xl', big);
     bigPoster();
@@ -914,6 +917,20 @@
       T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
       T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
       T('oldx_slight', 'Слегка скруглённые постеры', 'Небольшое скругление углов вместо прямых (если включено вместе с квадратными, побеждает скругление)', false);
+      var S = function (name, title, descr, values, def) {
+        Lampa.SettingsApi.addParam({
+          component: 'oldui',
+          param: { name: name, type: 'select', values: values, default: def },
+          field: { name: title, description: descr },
+          onChange: applyClasses
+        });
+      };
+      S('oldx_mx', 'Данные справа: отступ от края', 'Чем больше, тем левее блок «Дата релиза / Бюджет / Сборы / Страны»',
+        { '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '8': '8', '10': '10' }, '3');
+      S('oldx_my', 'Данные справа: сдвиг вверх / вниз', 'Минус — выше, плюс — ниже',
+        { '-4': '-4', '-3': '-3', '-2': '-2', '-1': '-1', '0': '0', '1': '1', '2': '2', '3': '3', '4': '4' }, '0');
+      S('oldx_mgap', 'Данные справа: расстояние между строками', 'Если строки слипаются, увеличь',
+        { '0.3': 'Плотно', '0.6': 'Небольшое', '0.9': 'Среднее', '1.3': 'Большое', '1.8': 'Очень большое' }, '0.9');
       Lampa.SettingsApi.addParam({
         component: 'oldui',
         param: { name: 'oldx_psize', type: 'select', values: { off: 'Как в Lampa', s: 'Маленький', m: 'Средний', l: 'Большой', xl: 'Очень большой' }, default: 'm' },
@@ -957,3 +974,4 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
