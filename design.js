@@ -526,8 +526,8 @@
         }
     }
 
-    function updateClonedField(field, value) {
-        var label = deepestMatchingLabel(field, LABELS.budget);
+    function updateClonedField(field, value, variants) {
+        var label = deepestMatchingLabel(field, variants || LABELS.budget);
 
         if (!label) return false;
 
@@ -601,31 +601,42 @@
             var budgetLabel = findLabel(root, LABELS.budget);
             var countriesLabel = findLabel(root, LABELS.countries);
 
-            if (!releaseLabel || !budgetLabel || !countriesLabel) return;
+            // Бюджета у фильма может не быть — тогда берём за образец другое поле
+            var tplLabel = budgetLabel || releaseLabel || countriesLabel;
+            var tplVariants = budgetLabel ? LABELS.budget : (releaseLabel ? LABELS.release : LABELS.countries);
+            if (!tplLabel) return;
 
-            var row = findMetadataRow(
-                root,
-                releaseLabel,
-                budgetLabel,
-                countriesLabel
-            );
+            var found = [releaseLabel, budgetLabel, countriesLabel].filter(Boolean);
+            if (found.length < 2) return;
 
+            // строка с полями: ближайший предок, где все найденные поля — разные прямые ветки
+            var row = null, cur = tplLabel;
+            while (cur && cur !== root && cur.parentElement) {
+                var par = cur.parentElement, branches = [], ok = true;
+                for (var f = 0; f < found.length; f++) {
+                    var br = directBranch(par, found[f]);
+                    if (!br || branches.indexOf(br) !== -1) { ok = false; break; }
+                    branches.push(br);
+                }
+                if (ok && par.children.length >= 2) { row = par; break; }
+                cur = par;
+            }
             if (!row) return;
 
-            var budgetBranch = directBranch(row, budgetLabel);
+            var tplBranch = directBranch(row, tplLabel);
+            if (!tplBranch || !tplBranch.parentNode) return;
 
-            if (!budgetBranch || !budgetBranch.parentNode) return;
+            // Копируем оформление образца для нового поля сборов.
+            var clone = tplBranch.cloneNode(true);
+            if (!updateClonedField(clone, money, tplVariants)) return;
 
-            // Копируем оформление поля бюджета для нового поля сборов.
-            var clone = budgetBranch.cloneNode(true);
-
-            if (!updateClonedField(clone, money)) return;
-
-            // Вставляем сразу после бюджета, перед странами.
-            budgetBranch.parentNode.insertBefore(
-                clone,
-                budgetBranch.nextSibling
-            );
+            // Порядок: дата релиза, бюджет, сборы, страны
+            var countriesBranch = countriesLabel ? directBranch(row, countriesLabel) : null;
+            if (countriesBranch && countriesBranch !== tplBranch) {
+                row.insertBefore(clone, countriesBranch);
+            } else {
+                row.insertBefore(clone, tplBranch.nextSibling);
+            }
 
         } catch (error) {
             try {
