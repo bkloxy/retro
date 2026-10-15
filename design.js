@@ -732,11 +732,9 @@
     /* вертикальный блок данных справа */
     '.oldx-meta{display:flex !important;flex-direction:column !important;align-items:flex-start !important;gap:.9em !important;',
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
-    '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2.5em;width:100%;box-sizing:border-box}',
-    '.oldx-wrap > :first-child{flex:0 0 auto !important;min-width:0 !important;width:calc(100% - 17.5em - var(--oldx-x,3em)) !important;max-width:calc(100% - 17.5em - var(--oldx-x,3em)) !important;box-sizing:border-box !important;overflow-wrap:break-word}',
-    '.oldx-wrap > :first-child *{max-width:100% !important;box-sizing:border-box}',
-    '.oldx-wrap > .oldx-meta{flex:0 0 13em !important;width:13em !important;max-width:13em !important;margin:0 var(--oldx-x,3em) 0 0 !important;transform:translateY(var(--oldx-y,0em));gap:var(--oldx-gap,.9em) !important;box-sizing:border-box}',
-    '.oldx-wrap{margin-bottom:.4em !important}',
+    /* описание стоит намертво на всю ширину; двигается только панель данных */
+    '.oldx-wrap{display:block !important;position:relative !important;width:100%;box-sizing:border-box;margin-bottom:.4em !important}',
+    '.oldx-wrap > .oldx-meta{position:absolute !important;top:0 !important;right:var(--oldx-x,3em) !important;left:auto !important;float:none !important;width:13em !important;max-width:13em !important;margin:0 !important;transform:translateY(var(--oldx-y,0em));gap:var(--oldx-gap,.9em) !important;box-sizing:border-box;z-index:2}',
     'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
     '.oldx-meta > *{margin:0 !important;display:flex !important;flex-direction:column !important;gap:.15em !important}',
     '.oldx-meta > * > *{margin:0 !important;padding:0 !important;line-height:1.2 !important}',
@@ -976,5 +974,3 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-
-    
