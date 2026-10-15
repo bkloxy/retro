@@ -732,9 +732,9 @@
     /* вертикальный блок данных справа */
     '.oldx-meta{display:flex !important;flex-direction:column !important;align-items:flex-start !important;gap:.9em !important;',
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
-    '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2em;width:100%;box-sizing:border-box}',
-    '.oldx-wrap > :first-child{flex:1 1 auto;min-width:0}',
-    '.oldx-wrap > .oldx-meta{flex:0 0 auto;margin-right:3em !important}',
+    '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2.5em;width:100%;box-sizing:border-box}',
+    '.oldx-wrap > :first-child{flex:1 1 0 !important;min-width:0 !important;width:auto !important;max-width:none !important;overflow-wrap:break-word}',
+    '.oldx-wrap > .oldx-meta{flex:0 0 13em !important;width:13em !important;max-width:13em !important;margin:0 3em 0 0 !important;box-sizing:border-box}',
     '.oldx-wrap{margin-bottom:.4em !important}',
     'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
     '.oldx-meta > *{margin:0 !important}',
@@ -957,4 +957,3 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-
