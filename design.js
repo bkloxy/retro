@@ -1149,12 +1149,20 @@
 
   function personTick() {
     try {
-      var scopes = document.querySelectorAll('.activity');
-      for (var i = 0; i < scopes.length; i++) {
-        var sc = scopes[i];
-        if (!sc.querySelector('[class*="full-person"]')) continue;
-        if (flag('oldx_age', true)) addAge(sc);
-        addTranslateButton(sc);
+      var scopes = [];
+      var act = Lampa.Activity.active();
+      if (act && act.component === 'actor' && act.activity && act.activity.render) {
+        var r = act.activity.render();
+        if (r && r[0]) scopes.push(r[0]);
+      }
+      if (!scopes.length) {
+        // запасной вариант: экран, где есть шапка персоны (НЕ карточка фильма)
+        var all = document.querySelectorAll('.activity');
+        for (var i = 0; i < all.length; i++) if (all[i].querySelector('[class*="person-start"]')) scopes.push(all[i]);
+      }
+      for (var j = 0; j < scopes.length; j++) {
+        if (flag('oldx_age', true)) addAge(scopes[j]);
+        addTranslateButton(scopes[j]);
       }
     } catch (e) { log('person', e); }
   }
