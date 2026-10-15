@@ -734,6 +734,7 @@
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
     /* описание стоит намертво на всю ширину; двигается только панель данных */
     '.oldx-wrap{display:block !important;position:relative !important;width:100%;box-sizing:border-box;margin-bottom:.4em !important}',
+    '.oldx-wrap > :first-child{box-sizing:border-box !important;padding-right:calc(15em + var(--oldx-x,3em)) !important;overflow-wrap:break-word}',
     '.oldx-wrap > .oldx-meta{position:absolute !important;top:0 !important;right:var(--oldx-x,3em) !important;left:auto !important;float:none !important;width:13em !important;max-width:13em !important;margin:0 !important;transform:translateY(var(--oldx-y,0em));gap:var(--oldx-gap,.9em) !important;box-sizing:border-box;z-index:2}',
     'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
     '.oldx-meta > *{margin:0 !important;display:flex !important;flex-direction:column !important;gap:.15em !important}',
@@ -974,3 +975,4 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
