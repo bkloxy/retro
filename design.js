@@ -733,11 +733,13 @@
     '.oldx-meta{display:flex !important;flex-direction:column !important;align-items:flex-start !important;gap:.9em !important;',
     'flex-wrap:nowrap !important;width:auto !important;max-width:35% !important;box-sizing:border-box}',
     '.oldx-wrap{display:flex !important;flex-direction:row !important;align-items:flex-start;gap:2.5em;width:100%;box-sizing:border-box}',
-    '.oldx-wrap > :first-child{flex:1 1 0 !important;min-width:0 !important;width:auto !important;max-width:none !important;overflow-wrap:break-word}',
+    '.oldx-wrap > :first-child{flex:0 0 auto !important;min-width:0 !important;width:calc(100% - 17.5em - var(--oldx-x,3em)) !important;max-width:calc(100% - 17.5em - var(--oldx-x,3em)) !important;box-sizing:border-box !important;overflow-wrap:break-word}',
+    '.oldx-wrap > :first-child *{max-width:100% !important;box-sizing:border-box}',
     '.oldx-wrap > .oldx-meta{flex:0 0 13em !important;width:13em !important;max-width:13em !important;margin:0 var(--oldx-x,3em) 0 0 !important;transform:translateY(var(--oldx-y,0em));gap:var(--oldx-gap,.9em) !important;box-sizing:border-box}',
     '.oldx-wrap{margin-bottom:.4em !important}',
     'body.oldx-nocomm [class*="full-descr__tags"],[class*="full-descr__tags"]{margin-top:0 !important}',
-    '.oldx-meta > *{margin:0 !important}',
+    '.oldx-meta > *{margin:0 !important;display:flex !important;flex-direction:column !important;gap:.15em !important}',
+    '.oldx-meta > * > *{margin:0 !important;padding:0 !important;line-height:1.2 !important}',
 
     /* экран выбора озвучки (Онлайн Мод) */
     'body.oldx-nodescr .explorer-card__descr{display:none !important}',
@@ -762,7 +764,7 @@
     setCls(b, 'oldx-nodescr', flag('oldx_nodescr', true));
     b.style.setProperty('--oldx-x', field('oldx_mx', '3') + 'em');
     b.style.setProperty('--oldx-y', field('oldx_my', '0') + 'em');
-    b.style.setProperty('--oldx-gap', field('oldx_mgap', '0.9') + 'em');
+    b.style.setProperty('--oldx-gap', field('oldx_mgap', '1.3') + 'em');
     var big = String(field('oldx_psize', 'm')) !== 'off';
     setCls(b, 'oldx-poster-xl', big);
     bigPoster();
@@ -930,7 +932,7 @@
       S('oldx_my', 'Данные справа: сдвиг вверх / вниз', 'Минус — выше, плюс — ниже',
         { '-4': '-4', '-3': '-3', '-2': '-2', '-1': '-1', '0': '0', '1': '1', '2': '2', '3': '3', '4': '4' }, '0');
       S('oldx_mgap', 'Данные справа: расстояние между строками', 'Если строки слипаются, увеличь',
-        { '0.3': 'Плотно', '0.6': 'Небольшое', '0.9': 'Среднее', '1.3': 'Большое', '1.8': 'Очень большое' }, '0.9');
+        { '0.3': 'Плотно', '0.6': 'Небольшое', '0.9': 'Среднее', '1.3': 'Большое', '1.8': 'Очень большое' }, '1.3');
       Lampa.SettingsApi.addParam({
         component: 'oldui',
         param: { name: 'oldx_psize', type: 'select', values: { off: 'Как в Lampa', s: 'Маленький', m: 'Средний', l: 'Большой', xl: 'Очень большой' }, default: 'm' },
@@ -975,3 +977,4 @@
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
 
+    
