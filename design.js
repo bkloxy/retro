@@ -916,6 +916,8 @@
       T('oldx_nocomm', 'Скрыть комментарии', 'Убирает раздел «Комментарии» в карточке фильма/сериала', true);
       T('oldx_meta', 'Данные вертикально справа', 'Дата релиза, бюджет, сборы, страны — столбиком справа от описания', true);
       T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
+      T('oldx_age', 'Возраст в скобках у актёров', 'Рядом с датой рождения пишет (54 года)', true);
+      T('oldx_autotr', 'Всегда переводить место рождения', 'На странице актёра сразу показывать место рождения на русском (кнопка «Перевести» остаётся)', false);
       T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
       T('oldx_slight', 'Слегка скруглённые постеры', 'Небольшое скругление углов вместо прямых (если включено вместе с квадратными, побеждает скругление)', false);
       var S = function (name, title, descr, values, def) {
@@ -941,6 +943,222 @@
     } catch (e) { log('settings', e); }
   }
 
+  /* ---------- 4. Страница актёра / режиссёра: возраст и перевод места рождения ---------- */
+  var DICT = {};
+  (function () {
+    var src = [
+      'usa:США|us:США|united states:США|united states of america:США|uk:Великобритания|united kingdom:Великобритания|great britain:Великобритания|england:Англия|scotland:Шотландия|wales:Уэльс|northern ireland:Северная Ирландия|ireland:Ирландия|canada:Канада|france:Франция|germany:Германия|west germany:ФРГ|east germany:ГДР|italy:Италия|spain:Испания|portugal:Португалия|russia:Россия|soviet union:СССР|ussr:СССР|ukraine:Украина|belarus:Беларусь|poland:Польша|czech republic:Чехия|czechoslovakia:Чехословакия|slovakia:Словакия|hungary:Венгрия|romania:Румыния|bulgaria:Болгария|serbia:Сербия|croatia:Хорватия|slovenia:Словения|bosnia and herzegovina:Босния и Герцеговина|greece:Греция|turkey:Турция|austria:Австрия|switzerland:Швейцария|netherlands:Нидерланды|the netherlands:Нидерланды|belgium:Бельгия|luxembourg:Люксембург|denmark:Дания|sweden:Швеция|norway:Норвегия|finland:Финляндия|iceland:Исландия|estonia:Эстония|latvia:Латвия|lithuania:Литва|australia:Австралия|new zealand:Новая Зеландия|india:Индия|china:Китай|japan:Япония|south korea:Южная Корея|north korea:Северная Корея|hong kong:Гонконг|taiwan:Тайвань|thailand:Таиланд|vietnam:Вьетнам|philippines:Филиппины|indonesia:Индонезия|malaysia:Малайзия|singapore:Сингапур|pakistan:Пакистан|iran:Иран|iraq:Ирак|israel:Израиль|lebanon:Ливан|egypt:Египет|morocco:Марокко|south africa:Южная Африка|nigeria:Нигерия|kenya:Кения|ghana:Гана|mexico:Мексика|brazil:Бразилия|argentina:Аргентина|chile:Чили|colombia:Колумбия|peru:Перу|venezuela:Венесуэла|cuba:Куба|puerto rico:Пуэрто-Рико|jamaica:Ямайка|kazakhstan:Казахстан|armenia:Армения|azerbaijan:Азербайджан|uzbekistan:Узбекистан|moldova:Молдова',
+      'alabama:Алабама|alaska:Аляска|arizona:Аризона|arkansas:Арканзас|california:Калифорния|colorado:Колорадо|connecticut:Коннектикут|delaware:Делавэр|florida:Флорида|hawaii:Гавайи|idaho:Айдахо|illinois:Иллинойс|indiana:Индиана|iowa:Айова|kansas:Канзас|kentucky:Кентукки|louisiana:Луизиана|maine:Мэн|maryland:Мэриленд|massachusetts:Массачусетс|michigan:Мичиган|minnesota:Миннесота|mississippi:Миссисипи|missouri:Миссури|montana:Монтана|nebraska:Небраска|nevada:Невада|new hampshire:Нью-Гэмпшир|new jersey:Нью-Джерси|new mexico:Нью-Мексико|new york:Нью-Йорк|north carolina:Северная Каролина|north dakota:Северная Дакота|ohio:Огайо|oklahoma:Оклахома|oregon:Орегон|pennsylvania:Пенсильвания|rhode island:Род-Айленд|south carolina:Южная Каролина|south dakota:Южная Дакота|tennessee:Теннесси|texas:Техас|utah:Юта|vermont:Вермонт|virginia:Виргиния|washington:Вашингтон|west virginia:Западная Виргиния|wisconsin:Висконсин|wyoming:Вайоминг|dc:Округ Колумбия|district of columbia:Округ Колумбия|ontario:Онтарио|quebec:Квебек|british columbia:Британская Колумбия|alberta:Альберта|manitoba:Манитоба|nova scotia:Новая Шотландия'
+    ].join('|').split('|');
+    for (var i = 0; i < src.length; i++) {
+      var k = src[i].indexOf(':');
+      if (k > 0) DICT[src[i].slice(0, k)] = src[i].slice(k + 1);
+    }
+  })();
+
+  var MONTHS = { 'января': 0, 'февраля': 1, 'марта': 2, 'апреля': 3, 'мая': 4, 'июня': 5, 'июля': 6, 'августа': 7, 'сентября': 8, 'октября': 9, 'ноября': 10, 'декабря': 11 };
+  var DATE_RE = /(\d{1,2})\s+([А-Яа-яЁё]+)\s+(\d{4})/;
+  function ageWord(n) {
+    var m = n % 100, d = n % 10;
+    if (m >= 11 && m <= 14) return 'лет';
+    if (d === 1) return 'год';
+    if (d >= 2 && d <= 4) return 'года';
+    return 'лет';
+  }
+  function calcAge(y, mo, d) {
+    var n = new Date(), a = n.getFullYear() - y;
+    if (n.getMonth() < mo || (n.getMonth() === mo && n.getDate() < d)) a--;
+    return a;
+  }
+  function inCard(el) { return !!(el.closest && el.closest('.card, .full-person__card')); }
+
+  function personLeaves(scope) {
+    var res = [], all = scope.querySelectorAll('div,span,p');
+    for (var i = 0; i < all.length; i++) if (all[i].children.length === 0 && !inCard(all[i])) res.push(all[i]);
+    return res;
+  }
+
+  /* --- возраст --- */
+  function addAge(scope) {
+    var leaves = personLeaves(scope);
+    for (var i = 0; i < leaves.length; i++) {
+      var el = leaves[i], t = el.textContent || '';
+      if (t.length > 60 || t.indexOf('(') !== -1 || el.getAttribute('data-oldx-age')) continue;
+      var m = t.match(DATE_RE);
+      if (!m) continue;
+      var mo = MONTHS[m[2].toLowerCase()];
+      if (mo === undefined) continue;
+      var age = calcAge(+m[3], mo, +m[1]);
+      if (age < 0 || age > 130) continue;
+      el.setAttribute('data-oldx-age', '1');
+      el.textContent = t.replace(/\s+$/, '') + ' (' + age + ' ' + ageWord(age) + ')';
+      return;
+    }
+  }
+
+  /* --- перевод места рождения --- */
+  function loadCache() { try { return JSON.parse(localStorage.getItem('oldx_place_cache') || '{}'); } catch (e) { return {}; } }
+  function saveCache(c) { try { localStorage.setItem('oldx_place_cache', JSON.stringify(c)); } catch (e) {} }
+
+  function xhrJson(url, cb) {
+    var done = false, x = new XMLHttpRequest();
+    var fin = function (v) { if (!done) { done = true; cb(v); } };
+    try {
+      x.open('GET', url, true);
+      x.timeout = 8000;
+      x.onload = function () { try { fin(JSON.parse(x.responseText)); } catch (e) { fin(null); } };
+      x.onerror = x.ontimeout = function () { fin(null); };
+      x.send();
+    } catch (e) { fin(null); }
+  }
+
+  // Wikidata отдаёт название и описание на русском, если они там есть
+  function lookup(name, ctx, cb) {
+    var url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=6&format=json&origin=*&language=en&uselang=ru&search=' + encodeURIComponent(name);
+    xhrJson(url, function (j) {
+      var list = (j && j.search) || [], best = null, first = null;
+      for (var i = 0; i < list.length; i++) {
+        var lab = list[i].display && list[i].display.label;
+        if (!lab || lab.language !== 'ru') continue;
+        if (!first) first = lab.value;
+        var desc = String(list[i].description || '').toLowerCase();
+        for (var c = 0; c < ctx.length; c++) {
+          var stem = ctx[c].toLowerCase();
+          stem = stem.slice(0, Math.max(4, stem.length - 2));
+          if (desc.indexOf(stem) !== -1) { best = lab.value; break; }
+        }
+        if (best) break;
+      }
+      cb(best || first || null);
+    });
+  }
+
+  function translatePlace(str, done) {
+    var cache = loadCache();
+    if (cache[str]) return done(cache[str]);
+    var parts = str.split(',').map(function (p) { return p.replace(/^\s+|\s+$/g, ''); }).filter(Boolean);
+    var low = parts.map(function (p) { return p.toLowerCase().replace(/\./g, ''); });
+    var hasUS = low.indexOf('usa') !== -1 || low.indexOf('us') !== -1 || low.indexOf('united states') !== -1;
+    var out = [], ctx = [];
+    for (var i = 0; i < parts.length; i++) {
+      var r = DICT[low[i]] || null;
+      if (low[i] === 'georgia') r = hasUS ? 'Джорджия' : 'Грузия';
+      out.push(r);
+      if (r) ctx.push(r);
+    }
+    var idx = 0;
+    var next = function () {
+      while (idx < parts.length && out[idx] !== null) idx++;
+      if (idx >= parts.length) {
+        var res = out.map(function (v, k) { return v || parts[k]; }).join(', ');
+        var c = loadCache(); c[str] = res; saveCache(c);
+        return done(res);
+      }
+      var i2 = idx;
+      lookup(parts[i2], ctx, function (ru) {
+        out[i2] = ru || parts[i2];
+        if (ru) ctx.push(ru);
+        idx = i2 + 1;
+        next();
+      });
+    };
+    next();
+  }
+
+  function findPlace(scope) {
+    var el = scope.querySelector('[class*="full-person"][class*="place"], [class*="person"][class*="place"]');
+    if (el && el.children.length === 0) return el;
+    var leaves = personLeaves(scope);
+    for (var i = 0; i < leaves.length; i++) {
+      var t = (leaves[i].textContent || '').trim();
+      if (t.length > 3 && t.length < 120 && t.indexOf(',') !== -1 && /[A-Za-z]{3}/.test(t) && !/[А-Яа-яЁё]/.test(t) && !leaves[i].closest('.selector')) return leaves[i];
+    }
+    return null;
+  }
+  function findSubscribe(scope) {
+    var sel = scope.querySelectorAll('.selector');
+    for (var i = 0; i < sel.length; i++) {
+      var t = (sel[i].textContent || '').trim().toLowerCase();
+      if (t === 'подписаться' || t === 'отписаться' || t === 'subscribe' || t === 'unsubscribe') return sel[i];
+    }
+    return null;
+  }
+
+  var TR_SVG = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" stroke="currentColor" stroke-width="2"/></svg>';
+
+  function setBtnLabel(btn, text) {
+    var leaves = btn.querySelectorAll('*');
+    for (var i = 0; i < leaves.length; i++) {
+      if (leaves[i].children.length === 0 && leaves[i].tagName.toLowerCase() !== 'svg' && (leaves[i].textContent || '').trim()) { leaves[i].textContent = text; return; }
+    }
+    if (!btn.querySelector('svg')) btn.textContent = text;
+  }
+
+  function doTranslate(scope, btn, force) {
+    var place = findPlace(scope) || scope.querySelector('[data-oldx-place]');
+    if (!place) return;
+    var orig = place.getAttribute('data-oldx-orig');
+    if (!orig) { orig = (place.textContent || '').trim(); place.setAttribute('data-oldx-orig', orig); place.setAttribute('data-oldx-place', '1'); }
+    var showing = place.getAttribute('data-oldx-state') === 'ru';
+    if (showing && !force) {              // повторное нажатие — вернуть оригинал
+      place.textContent = orig;
+      place.setAttribute('data-oldx-state', 'en');
+      if (btn) setBtnLabel(btn, 'Перевести');
+      return;
+    }
+    if (showing) return;
+    if (btn) setBtnLabel(btn, 'Перевожу…');
+    translatePlace(orig, function (ru) {
+      place.textContent = ru;
+      place.setAttribute('data-oldx-state', 'ru');
+      if (btn) setBtnLabel(btn, 'Оригинал');
+    });
+  }
+
+  function addTranslateButton(scope) {
+    if (scope.querySelector('.oldx-trbtn')) return;
+    var sub = findSubscribe(scope);
+    if (!sub || !sub.parentNode) return;
+    var place = findPlace(scope);
+    if (!place) return;
+    var btn = sub.cloneNode(true);
+    btn.classList.remove('focus', 'hover');
+    btn.classList.add('oldx-trbtn');
+    var old = btn.querySelector('svg');
+    if (old) {
+      var tmp = document.createElement('div');
+      tmp.innerHTML = TR_SVG;
+      var nu = tmp.firstChild;
+      var cls = old.getAttribute('class');
+      if (cls) nu.setAttribute('class', cls);
+      old.parentNode.replaceChild(nu, old);
+    }
+    setBtnLabel(btn, 'Перевести');
+    var last = 0;
+    var handler = function () {
+      var n = Date.now();
+      if (n - last < 500) return;
+      last = n;
+      doTranslate(scope, btn, false);
+    };
+    if (window.$) window.$(btn).on('hover:enter', handler); else btn.addEventListener('click', handler);
+    sub.parentNode.insertBefore(btn, sub);
+    try { if (Lampa.Controller.collectionAppend) Lampa.Controller.collectionAppend(window.$(btn)); } catch (e) {}
+    if (flag('oldx_autotr', false)) doTranslate(scope, btn, true);
+  }
+
+  function personTick() {
+    try {
+      var scopes = document.querySelectorAll('.activity');
+      for (var i = 0; i < scopes.length; i++) {
+        var sc = scopes[i];
+        if (!sc.querySelector('[class*="full-person"]')) continue;
+        if (flag('oldx_age', true)) addAge(sc);
+        addTranslateButton(sc);
+      }
+    } catch (e) { log('person', e); }
+  }
+
   /* ---------- запуск ---------- */
   var pending = false;
   function tick() {
@@ -952,6 +1170,7 @@
       menuSearch();
       metaRows(document);
       bigPoster();
+      personTick();
     });
   }
   function start() {
@@ -975,4 +1194,3 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-
