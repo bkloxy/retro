@@ -997,8 +997,8 @@
   }
 
   /* --- перевод места рождения --- */
-  function loadCache() { try { return JSON.parse(localStorage.getItem('oldx_place_cache') || '{}'); } catch (e) { return {}; } }
-  function saveCache(c) { try { localStorage.setItem('oldx_place_cache', JSON.stringify(c)); } catch (e) {} }
+  function loadCache() { try { return JSON.parse(localStorage.getItem('oldx_place_cache2') || '{}'); } catch (e) { return {}; } }
+  function saveCache(c) { try { localStorage.setItem('oldx_place_cache2', JSON.stringify(c)); } catch (e) {} }
 
   function xhrJson(url, cb) {
     var done = false, x = new XMLHttpRequest();
@@ -1012,24 +1012,29 @@
     } catch (e) { fin(null); }
   }
 
-  // Wikidata отдаёт название и описание на русском, если они там есть
+  // Wikidata отдаёт название и описание на русском, если они там есть.
+  // Берём только объекты-места (город, район, штат…), чтобы «Westminster» не превращался в «Парламент».
+  var PLACE_RE = /город|район|посёл|посел|деревн|село|населённ|населен|округ|графств|област|штат|провинц|регион|муниципал|пригород|столиц|боро|квартал|остров|территори|земл[яи]|town|city|village|district|borough|county|state|province/i;
   function lookup(name, ctx, cb) {
-    var url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=6&format=json&origin=*&language=en&uselang=ru&search=' + encodeURIComponent(name);
+    var url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=8&format=json&origin=*&language=en&uselang=ru&search=' + encodeURIComponent(name);
     xhrJson(url, function (j) {
-      var list = (j && j.search) || [], best = null, first = null;
+      var list = (j && j.search) || [], cands = [];
       for (var i = 0; i < list.length; i++) {
         var lab = list[i].display && list[i].display.label;
         if (!lab || lab.language !== 'ru') continue;
-        if (!first) first = lab.value;
         var desc = String(list[i].description || '').toLowerCase();
+        var isPlace = PLACE_RE.test(desc), inCtx = false;
         for (var c = 0; c < ctx.length; c++) {
           var stem = ctx[c].toLowerCase();
           stem = stem.slice(0, Math.max(4, stem.length - 2));
-          if (desc.indexOf(stem) !== -1) { best = lab.value; break; }
+          if (desc.indexOf(stem) !== -1) { inCtx = true; break; }
         }
-        if (best) break;
+        cands.push({ v: lab.value, score: (isPlace ? 2 : 0) + (inCtx ? 1 : 0) + (isPlace && inCtx ? 2 : 0) });
       }
-      cb(best || first || null);
+      var best = null;
+      for (var k = 0; k < cands.length; k++) if (!best || cands[k].score > best.score) best = cands[k];
+      // если ни одно описание не похоже на место — лучше оставить как есть, чем подставить не то
+      cb(best && best.score >= 2 ? best.v : null);
     });
   }
 
