@@ -929,6 +929,7 @@
       T('oldx_search', 'Поиск первым в меню', 'Добавляет пункт «Поиск» в начало бокового меню', true);
       T('oldx_age', 'Возраст в скобках у актёров', 'Рядом с датой рождения пишет (54 года)', true);
       T('oldx_autotr', 'Всегда переводить место рождения', 'На странице актёра сразу показывать место рождения на русском (кнопка «Перевести» остаётся)', false);
+      T('oldx_digital', 'Цифровой релиз', 'После даты релиза показывает дату выхода в стриминге/онлайн (самая ранняя среди стран)', true);
       T('oldx_nodescr', 'Без описания при выборе озвучки', 'Убирает текст описания на экране выбора озвучки/балансера', true);
       T('oldx_slight', 'Слегка скруглённые постеры', 'Небольшое скругление углов вместо прямых (если включено вместе с квадратными, побеждает скругление)', false);
       var S = function (name, title, descr, values, def) {
@@ -1183,6 +1184,91 @@
     } catch (e) { log('person', e); }
   }
 
+  /* ---------- 5. «Цифровой релиз» после даты релиза ---------- */
+  var REL_NAMES = ['дата релиза', 'дата выхода', 'release date', 'date of release'];
+  var OTHER_NAMES = ['бюджет', 'budget', 'страны', 'страна', 'countries', 'country', 'сборы', 'box office'];
+  var MONTH_GEN = ['Января', 'Февраля', 'Марта', 'Апреля', 'Мая', 'Июня', 'Июля', 'Августа', 'Сентября', 'Октября', 'Ноября', 'Декабря'];
+
+  function leafByNames(root, names) {
+    var all = root.querySelectorAll('div,span');
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].children.length === 0 && names.indexOf(norm(all[i].textContent)) !== -1) return all[i];
+    }
+    return null;
+  }
+  function branchOf(ancestor, node) {
+    var cur = node;
+    while (cur && cur.parentElement && cur.parentElement !== ancestor) cur = cur.parentElement;
+    return cur && cur.parentElement === ancestor ? cur : null;
+  }
+  // самая ранняя дата цифрового релиза (тип 4) среди всех стран; страну не показываем
+  function earliestDigital(rd) {
+    var rs = rd && (rd.results || rd), best = null;
+    if (!rs || !rs.length) return null;
+    for (var i = 0; i < rs.length; i++) {
+      var list = rs[i].release_dates || [];
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].type === 4 && list[j].release_date) {
+          var d = String(list[j].release_date).slice(0, 10);
+          if (!best || d < best) best = d;
+        }
+      }
+    }
+    return best;
+  }
+  function fmtDate(d) {
+    var p = d.split('-');
+    return (+p[2]) + ' ' + MONTH_GEN[(+p[1]) - 1] + ' ' + p[0];
+  }
+  function insertDigital(root, ds) {
+    var old = root.querySelector('[data-oldx-digital]');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var rel = leafByNames(root, REL_NAMES);
+    if (!rel) return;
+    var other = null;
+    for (var i = 0; i < OTHER_NAMES.length && !other; i++) other = leafByNames(root, [OTHER_NAMES[i]]);
+    if (!other) return;
+    var row = null, cur = rel;
+    while (cur && cur !== root && cur.parentElement) {
+      var par = cur.parentElement, b1 = branchOf(par, rel), b2 = branchOf(par, other);
+      if (b1 && b2 && b1 !== b2) { row = par; break; }
+      cur = par;
+    }
+    if (!row) return;
+    var relBranch = branchOf(row, rel);
+    if (!relBranch) return;
+    var clone = relBranch.cloneNode(true);
+    clone.removeAttribute('id');
+    var lab = leafByNames(clone, REL_NAMES);
+    if (!lab) return;
+    lab.textContent = 'Цифровой релиз';
+    var leaves = clone.querySelectorAll('*'), val = null;
+    for (var k = 0; k < leaves.length; k++) {
+      if (leaves[k] !== lab && leaves[k].children.length === 0 && (leaves[k].textContent || '').trim()) { val = leaves[k]; break; }
+    }
+    if (!val) return;
+    val.textContent = fmtDate(ds);
+    clone.setAttribute('data-oldx-digital', '1');
+    row.insertBefore(clone, relBranch.nextSibling);
+  }
+  function addDigital(e) {
+    try {
+      if (!flag('oldx_digital', true)) return;
+      var movie = e && e.data && e.data.movie;
+      if (!movie || movie.name || movie.first_air_date) return;     // только фильмы
+      var root = (e.body && e.body[0]) || (e.body && e.body.nodeType === 1 ? e.body : null) || document;
+      var ds = earliestDigital(movie.release_dates);
+      if (ds) return insertDigital(root, ds);
+      // запасной путь: спросить TMDB напрямую
+      if (movie.id && Lampa.TMDB && Lampa.TMDB.api) {
+        xhrJson(Lampa.TMDB.api('movie/' + movie.id + '/release_dates'), function (j) {
+          var d2 = earliestDigital(j);
+          if (d2) insertDigital(root, d2);
+        });
+      }
+    } catch (err) { log('digital', err); }
+  }
+
   /* ---------- запуск ---------- */
   var pending = false;
   function tick() {
@@ -1206,6 +1292,7 @@
         Lampa.Listener.follow('full', function (e) {
           if (e && (e.type === 'complite' || e.type === 'complete')) {
             [0, 300, 900].forEach(function (d) { setTimeout(tick, d); });
+            setTimeout(function () { addDigital(e); }, 350);
           }
         });
       } catch (e) {}
