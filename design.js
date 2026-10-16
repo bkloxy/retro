@@ -1337,13 +1337,13 @@
   }
 
   var CSS = [
-    '.oldx-glide-frame{position:fixed;left:0;top:0;z-index:3;pointer-events:none;box-sizing:border-box;',
+    '.oldx-glide-frame{position:fixed;left:0;top:0;z-index:999;pointer-events:none;box-sizing:border-box;',
     'border:' + BORDER + 'em solid #fff;opacity:0;transition:opacity .18s;display:none;will-change:transform,width,height}',
     'body.oldx-glide .oldx-glide-frame{display:block}',
     '.oldx-glide-frame.on{opacity:1}',
     /* прячем стандартную рамку Lampa, пока работает плавная */
-    'body.oldx-glide .card.focus .card__view::after,',
-    'body.oldx-glide .card.hover .card__view::after{opacity:0 !important;border-color:transparent !important;box-shadow:none !important}'
+    'body.oldx-glide-live .card.focus .card__view::after,',
+    'body.oldx-glide-live .card.hover .card__view::after{opacity:0 !important;border-color:transparent !important;box-shadow:none !important}'
   ].join('\n');
 
   function injectCss() {
@@ -1384,6 +1384,7 @@
 
   function fadeOut() {
     frame.classList.remove('on');
+    document.body.classList.remove('oldx-glide-live');
     if (!hideTimer) hideTimer = setTimeout(function () { hideTimer = 0; shown = false; }, 320);
   }
 
@@ -1403,6 +1404,7 @@
         shown = true;
         apply();
         frame.classList.add('on');
+        document.body.classList.add('oldx-glide-live');
         idle = 0;
       } else {
         var dt = Math.min(64, (t - lastT) || 16);
@@ -1416,6 +1418,7 @@
         if (d < 0.4) { cur.x = tg.x; cur.y = tg.y; cur.w = tg.w; cur.h = tg.h; idle++; } else idle = 0;
         apply();
         frame.classList.add('on');
+        document.body.classList.add('oldx-glide-live');
       }
       lastT = t;
       if (idle < IDLE_FRAMES) raf = requestAnimationFrame(tick);
@@ -1424,6 +1427,7 @@
       if (++errors >= 5) {
         log('too many errors, disabled');
         document.body.classList.remove('oldx-glide');
+        document.body.classList.remove('oldx-glide-live');
         try { Lampa.Storage.set('oldx_glide', 'off'); } catch (x) {}
       }
     }
@@ -1437,7 +1441,7 @@
   function applyMode() {
     var on = mode() !== 'off';
     document.body.classList.toggle('oldx-glide', on);
-    if (!on && frame) frame.classList.remove('on');
+    if (!on && frame) { frame.classList.remove('on'); document.body.classList.remove('oldx-glide-live'); }
     kick();
   }
 
