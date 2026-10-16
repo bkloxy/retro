@@ -1307,194 +1307,405 @@
 })();
 
 /*
- * Lampa: плавная рамка выделения постера (oldx-glide)
- * Белая рамка не прыгает на соседний постер, а плавно к нему «плывёт».
- * Настройки -> «Старый дизайн» -> «Плавная рамка выделения»: выкл / быстро / средне / медленно.
+ * Lampa: Netflix-style Smooth Focus Border
+ * oldx-glide v2
+ *
+ * Одна общая рамка плавно перемещается между постерами.
+ * Настройки -> Старый дизайн -> Плавная рамка выделения.
  */
 (function () {
-  'use strict';
-  if (window.oldx_glide_ready) return;
-  window.oldx_glide_ready = true;
+    'use strict';
 
-  // Время «догоняния» в миллисекундах: меньше = быстрее.
-  var TAU = { fast: 45, mid: 110, slow: 230 };
-  var BORDER = 0.3;   // толщина рамки, em
-  var GAP = 0.2;      // зазор между постером и рамкой, em
-  var IDLE_FRAMES = 14;
+    if (window.oldx_glide_v2_ready) return;
+    window.oldx_glide_v2_ready = true;
 
-  var frame = null, cur = null, shown = false, raf = 0, lastT = 0, idle = 0;
-  var hideTimer = 0, errors = 0, mo = null;
+    var SPEED = {
+        fast: 55,
+        mid: 105,
+        slow: 190
+    };
 
-  function log() { try { console.log.apply(console, ['[oldx-glide]'].concat([].slice.call(arguments))); } catch (e) {} }
+    var BORDER = 4;
+    var GAP = 3;
 
-  function mode() {
-    try {
-      var v = Lampa.Storage.field('oldx_glide');
-      if (v === undefined || v === null || v === '') v = 'mid';
-      v = String(v);
-      return TAU[v] ? v : 'off';
-    } catch (e) { return 'mid'; }
-  }
+    var frame = null;
+    var current = null;
+    var currentNode = null;
+    var lastTime = 0;
+    var raf = 0;
+    var started = false;
+    var style = null;
 
-  var CSS = [
-    '.oldx-glide-frame{position:fixed;left:0;top:0;z-index:999;pointer-events:none;box-sizing:border-box;',
-    'border:' + BORDER + 'em solid #fff;opacity:0;transition:opacity .18s;display:none;will-change:transform,width,height}',
-    'body.oldx-glide .oldx-glide-frame{display:block}',
-    '.oldx-glide-frame.on{opacity:1}',
-    /* прячем стандартную рамку Lampa, пока работает плавная */
-    'body.oldx-glide-live .card.focus .card__view::after,',
-    'body.oldx-glide-live .card.hover .card__view::after{opacity:0 !important;border-color:transparent !important;box-shadow:none !important}'
-  ].join('\n');
-
-  function injectCss() {
-    var st = document.createElement('style');
-    st.id = 'oldx-glide-style';
-    st.textContent = CSS;
-    document.head.appendChild(st);
-  }
-
-  function pickTarget() {
-    var list = document.querySelectorAll('.card.focus');
-    for (var i = list.length - 1; i >= 0; i--) {
-      var v = list[i].querySelector('.card__view') || list[i];
-      var r = v.getBoundingClientRect();
-      if (r.width > 4 && r.height > 4) return v;
+    function log() {
+        try {
+            console.log.apply(
+                console,
+                ['[oldx-glide-v2]'].concat(
+                    Array.prototype.slice.call(arguments)
+                )
+            );
+        } catch (e) {}
     }
-    return null;
-  }
 
-  function blocked() {
-    return !!document.querySelector('.modal, .selectbox, .settings--open');
-  }
+    function getMode() {
+        try {
+            var value = Lampa.Storage.field('oldx_glide');
 
-  function measure(v) {
-    var r = v.getBoundingClientRect();
-    var fs = parseFloat(getComputedStyle(frame).fontSize) || 16;
-    var out = (GAP + BORDER) * fs;
-    var rad = parseFloat(getComputedStyle(v).borderTopLeftRadius) || 0;
-    return { x: r.left - out, y: r.top - out, w: r.width + out * 2, h: r.height + out * 2, r: rad > 0 ? rad + out : 0 };
-  }
+            if (value === undefined || value === null || value === '') {
+                return 'mid';
+            }
 
-  function apply() {
-    frame.style.transform = 'translate3d(' + cur.x.toFixed(2) + 'px,' + cur.y.toFixed(2) + 'px,0)';
-    frame.style.width = cur.w.toFixed(2) + 'px';
-    frame.style.height = cur.h.toFixed(2) + 'px';
-    frame.style.borderRadius = cur.r.toFixed(2) + 'px';
-  }
+            value = String(value);
 
-  function fadeOut() {
-    frame.classList.remove('on');
-    document.body.classList.remove('oldx-glide-live');
-    if (!hideTimer) hideTimer = setTimeout(function () { hideTimer = 0; shown = false; }, 320);
-  }
+            if (value === 'off') return 'off';
 
-  function tick(t) {
-    raf = 0;
-    try {
-      var m = mode();
-      if (m === 'off') { fadeOut(); return; }
-      var v = pickTarget();
-      if (!v || blocked()) { fadeOut(); return; }
-      if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
-
-      var tg = measure(v);
-      if (!cur || !shown) {
-        // первое появление: сразу встаём на постер, без «полёта» из угла
-        cur = { x: tg.x, y: tg.y, w: tg.w, h: tg.h, r: tg.r };
-        shown = true;
-        apply();
-        frame.classList.add('on');
-        document.body.classList.add('oldx-glide-live');
-        idle = 0;
-      } else {
-        var dt = Math.min(64, (t - lastT) || 16);
-        var k = 1 - Math.exp(-dt / TAU[m]);
-        cur.x += (tg.x - cur.x) * k;
-        cur.y += (tg.y - cur.y) * k;
-        cur.w += (tg.w - cur.w) * k;
-        cur.h += (tg.h - cur.h) * k;
-        cur.r = tg.r;
-        var d = Math.abs(tg.x - cur.x) + Math.abs(tg.y - cur.y) + Math.abs(tg.w - cur.w) + Math.abs(tg.h - cur.h);
-        if (d < 0.4) { cur.x = tg.x; cur.y = tg.y; cur.w = tg.w; cur.h = tg.h; idle++; } else idle = 0;
-        apply();
-        frame.classList.add('on');
-        document.body.classList.add('oldx-glide-live');
-      }
-      lastT = t;
-      if (idle < IDLE_FRAMES) raf = requestAnimationFrame(tick);
-    } catch (e) {
-      log('error', e);
-      if (++errors >= 5) {
-        log('too many errors, disabled');
-        document.body.classList.remove('oldx-glide');
-        document.body.classList.remove('oldx-glide-live');
-        try { Lampa.Storage.set('oldx_glide', 'off'); } catch (x) {}
-      }
-    }
-  }
-
-  function kick() {
-    idle = 0;
-    if (!raf) raf = requestAnimationFrame(tick);
-  }
-
-  function applyMode() {
-    var on = mode() !== 'off';
-    document.body.classList.toggle('oldx-glide', on);
-    if (!on && frame) { frame.classList.remove('on'); document.body.classList.remove('oldx-glide-live'); }
-    kick();
-  }
-
-  function addSettings() {
-    try {
-      Lampa.SettingsApi.addParam({
-        component: 'oldui',
-        param: {
-          name: 'oldx_glide',
-          type: 'select',
-          values: { off: 'Выключено', fast: 'Быстро', mid: 'Средне', slow: 'Медленно' },
-          default: 'mid'
-        },
-        field: {
-          name: 'Плавная рамка выделения',
-          description: 'Белая рамка плавно перетекает на выбранный постер, а не прыгает'
-        },
-        onChange: applyMode
-      });
-    } catch (e) { log('settings', e); }
-  }
-
-  function start() {
-    try {
-      injectCss();
-      frame = document.createElement('div');
-      frame.className = 'oldx-glide-frame';
-      document.body.appendChild(frame);
-      addSettings();
-
-      // следим за сменой фокуса у карточек
-      mo = new MutationObserver(function (recs) {
-        for (var i = 0; i < recs.length; i++) {
-          var t = recs[i].target;
-          if (t && t.classList && (t.classList.contains('card') || t.classList.contains('activity'))) { kick(); return; }
+            return SPEED[value] ? value : 'mid';
+        } catch (e) {
+            return 'mid';
         }
-      });
-      mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
 
-      // и по нажатиям/прокрутке/ресайзу
-      window.addEventListener('keydown', kick, true);
-      window.addEventListener('click', kick, true);
-      window.addEventListener('wheel', kick, true);
-      window.addEventListener('resize', kick);
-      window.addEventListener('scroll', kick, true);
-      document.addEventListener('transitionend', kick, true);
-      try { Lampa.Controller.listener.follow('toggle', function () { setTimeout(kick, 30); }); } catch (e) {}
+    function isBlocked() {
+        return !!document.querySelector(
+            '.modal, .selectbox, .settings--open'
+        );
+    }
 
-      applyMode();
-      log('ready');
-    } catch (e) { log('start failed', e); }
-  }
+    function isVisible(rect) {
+        return (
+            rect.width > 4 &&
+            rect.height > 4 &&
+            rect.right > 0 &&
+            rect.bottom > 0 &&
+            rect.left < window.innerWidth &&
+            rect.top < window.innerHeight
+        );
+    }
 
-  if (window.appready) start();
-  else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+    /*
+     * Ищем текущую выбранную карточку.
+     * Сначала ищем стандартный фокус Lampa .card.focus.
+     */
+    function findTarget() {
+        var cards = document.querySelectorAll(
+            '.card.focus, .card__view.focus'
+        );
+
+        for (var i = cards.length - 1; i >= 0; i--) {
+            var node = cards[i];
+            var card = node.classList.contains('card')
+                ? node
+                : node.closest
+                    ? node.closest('.card')
+                    : null;
+
+            var view = node.classList.contains('card__view')
+                ? node
+                : (card
+                    ? card.querySelector('.card__view')
+                    : null);
+
+            if (!view) view = node;
+
+            var rect = view.getBoundingClientRect();
+
+            if (isVisible(rect)) {
+                return {
+                    node: card || view,
+                    view: view
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /*
+     * Получаем координаты рамки вокруг выбранного постера.
+     */
+    function measure(view) {
+        var rect = view.getBoundingClientRect();
+
+        var radius = parseFloat(
+            window.getComputedStyle(view).borderTopLeftRadius
+        ) || 0;
+
+        var offset = BORDER + GAP;
+
+        return {
+            x: rect.left - offset,
+            y: rect.top - offset,
+            w: rect.width + offset * 2,
+            h: rect.height + offset * 2,
+            r: radius > 0 ? radius + offset : 0
+        };
+    }
+
+    function setPosition(position) {
+        frame.style.transform =
+            'translate3d(' +
+            position.x.toFixed(2) + 'px,' +
+            position.y.toFixed(2) + 'px,0)';
+
+        frame.style.width = position.w.toFixed(2) + 'px';
+        frame.style.height = position.h.toFixed(2) + 'px';
+        frame.style.borderRadius = position.r.toFixed(2) + 'px';
+    }
+
+    function hideFrame() {
+        if (!frame) return;
+
+        frame.classList.remove('on');
+        document.body.classList.remove('oldx-glide-live');
+
+        current = null;
+        currentNode = null;
+    }
+
+    function tick(time) {
+        raf = 0;
+
+        if (!frame || !document.body) return;
+
+        var mode = getMode();
+
+        if (mode === 'off') {
+            hideFrame();
+            document.body.classList.remove('oldx-glide');
+            return;
+        }
+
+        document.body.classList.add('oldx-glide');
+
+        if (isBlocked()) {
+            hideFrame();
+            lastTime = time;
+
+            raf = requestAnimationFrame(tick);
+            return;
+        }
+
+        var target = findTarget();
+
+        if (!target) {
+            hideFrame();
+            lastTime = time;
+
+            raf = requestAnimationFrame(tick);
+            return;
+        }
+
+        var destination = measure(target.view);
+
+        /*
+         * Первый запуск: сразу ставим рамку на выбранный постер.
+         * Не анимируем её появление из угла экрана.
+         */
+        if (!current) {
+            current = {
+                x: destination.x,
+                y: destination.y,
+                w: destination.w,
+                h: destination.h,
+                r: destination.r
+            };
+
+            currentNode = target.node;
+
+            setPosition(current);
+            frame.classList.add('on');
+            document.body.classList.add('oldx-glide-live');
+
+            lastTime = time;
+            raf = requestAnimationFrame(tick);
+            return;
+        }
+
+        /*
+         * Рамка не создаётся заново при смене карточки.
+         * Она продолжает движение из текущего положения к новой цели.
+         */
+        var dt = lastTime
+            ? Math.min(40, Math.max(1, time - lastTime))
+            : 16;
+
+        var tau = SPEED[mode];
+        var factor = 1 - Math.exp(-dt / tau);
+
+        current.x += (destination.x - current.x) * factor;
+        current.y += (destination.y - current.y) * factor;
+        current.w += (destination.w - current.w) * factor;
+        current.h += (destination.h - current.h) * factor;
+        current.r += (destination.r - current.r) * factor;
+
+        var distance =
+            Math.abs(destination.x - current.x) +
+            Math.abs(destination.y - current.y) +
+            Math.abs(destination.w - current.w) +
+            Math.abs(destination.h - current.h);
+
+        if (distance < 0.25) {
+            current.x = destination.x;
+            current.y = destination.y;
+            current.w = destination.w;
+            current.h = destination.h;
+            current.r = destination.r;
+        }
+
+        currentNode = target.node;
+
+        setPosition(current);
+
+        frame.classList.add('on');
+        document.body.classList.add('oldx-glide-live');
+
+        lastTime = time;
+
+        /*
+         * Продолжаем отслеживать постер каждый кадр.
+         * Это также позволяет рамке следовать за карточкой при прокрутке.
+         */
+        raf = requestAnimationFrame(tick);
+    }
+
+    function kick() {
+        if (!started || raf) return;
+
+        raf = requestAnimationFrame(tick);
+    }
+
+    function applyMode() {
+        if (!document.body) return;
+
+        var enabled = getMode() !== 'off';
+
+        document.body.classList.toggle('oldx-glide', enabled);
+
+        if (!enabled) {
+            if (raf) {
+                cancelAnimationFrame(raf);
+                raf = 0;
+            }
+
+            hideFrame();
+        } else {
+            kick();
+        }
+    }
+
+    function addSettings() {
+        try {
+            Lampa.SettingsApi.addParam({
+                component: 'oldui',
+
+                param: {
+                    name: 'oldx_glide',
+                    type: 'select',
+
+                    values: {
+                        off: 'Выключено',
+                        fast: 'Быстро',
+                        mid: 'Средне',
+                        slow: 'Медленно'
+                    },
+
+                    default: 'mid'
+                },
+
+                field: {
+                    name: 'Плавная рамка выделения',
+                    description:
+                        'Одна белая рамка плавно перемещается между постерами'
+                },
+
+                onChange: applyMode
+            });
+        } catch (e) {
+            log('settings error', e);
+        }
+    }
+
+    function start() {
+        if (started) return;
+
+        try {
+            style = document.createElement('style');
+            style.id = 'oldx-glide-v2-style';
+
+            style.textContent = [
+                '.oldx-glide-frame-v2{',
+                'position:fixed;',
+                'left:0;',
+                'top:0;',
+                'z-index:9999;',
+                'pointer-events:none;',
+                'box-sizing:border-box;',
+                'border:' + BORDER + 'px solid #fff;',
+                'border-radius:0;',
+                'opacity:0;',
+                'display:none;',
+                'will-change:transform,width,height;',
+                '}',
+
+                'body.oldx-glide .oldx-glide-frame-v2{',
+                'display:block;',
+                '}',
+
+                '.oldx-glide-frame-v2.on{',
+                'opacity:1;',
+                '}',
+
+                'body.oldx-glide-live .card.focus .card__view::after,',
+                'body.oldx-glide-live .card.focus .card__view::before,',
+                'body.oldx-glide-live .card__view.focus::after,',
+                'body.oldx-glide-live .card__view.focus::before{',
+                'opacity:0!important;',
+                'border-color:transparent!important;',
+                'box-shadow:none!important;',
+                '}'
+            ].join('\n');
+
+            document.head.appendChild(style);
+
+            frame = document.createElement('div');
+            frame.className = 'oldx-glide-frame-v2';
+
+            document.body.appendChild(frame);
+
+            addSettings();
+
+            /*
+             * События помогают сразу реагировать на навигацию,
+             * а непрерывный цикл выше дополнительно отслеживает фокус.
+             */
+            window.addEventListener('keydown', kick, true);
+            window.addEventListener('click', kick, true);
+            window.addEventListener('wheel', kick, true);
+            window.addEventListener('resize', kick);
+            window.addEventListener('scroll', kick, true);
+
+            document.addEventListener('transitionend', kick, true);
+
+            try {
+                Lampa.Controller.listener.follow('toggle', function () {
+                    kick();
+                });
+            } catch (e) {}
+
+            started = true;
+            applyMode();
+
+            log('ready');
+        } catch (e) {
+            log('start error', e);
+        }
+    }
+
+    if (window.appready) {
+        start();
+    } else {
+        Lampa.Listener.follow('app', function (event) {
+            if (event.type === 'ready') start();
+        });
+    }
 })();
