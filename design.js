@@ -1,4 +1,4 @@
-*
+/*
  * Lampa plugin: "Old design" + "Netflix" (v1.4)
  *
  * Settings has TWO separate sections:
@@ -18,7 +18,7 @@
   if (window.oldui_plugin_ready) return;
   window.oldui_plugin_ready = true;
 
-  var VER = '1.4', GK = 'oldui_guard';
+  var VER = '1.5', GK = 'oldui_guard';
   function log() { try { console.log.apply(console, ['[oldui]'].concat([].slice.call(arguments))); } catch (e) {} }
 
   try { if (localStorage.getItem('oldui_off') === '1') { log('disabled by oldui_off'); return; } } catch (e) {}
@@ -1304,11 +1304,12 @@
 
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
-})();*
+})();
+
+/*
  * Lampa: плавная рамка выделения постера (oldx-glide)
  * Белая рамка не прыгает на соседний постер, а плавно к нему «плывёт».
  * Настройки -> «Старый дизайн» -> «Плавная рамка выделения»: выкл / быстро / средне / медленно.
- * Вставить в самый конец файла плагина.
  */
 (function () {
   'use strict';
@@ -1493,6 +1494,3 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
-
-
-
