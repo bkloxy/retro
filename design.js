@@ -1,4 +1,4 @@
-/*
+*
  * Lampa plugin: "Old design" + "Netflix" (v1.4)
  *
  * Settings has TWO separate sections:
@@ -1304,7 +1304,7 @@
 
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
-})();
+})();*
  * Lampa: плавная рамка выделения постера (oldx-glide)
  * Белая рамка не прыгает на соседний постер, а плавно к нему «плывёт».
  * Настройки -> «Старый дизайн» -> «Плавная рамка выделения»: выкл / быстро / средне / медленно.
@@ -1493,4 +1493,6 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+
+
 
