@@ -1305,3 +1305,193 @@
   if (window.appready) start();
   else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
+*
+ * Lampa: плавная рамка выделения постера (oldx-glide)
+ * Белая рамка не прыгает на соседний постер, а плавно к нему «плывёт».
+ * Настройки -> «Старый дизайн» -> «Плавная рамка выделения»: выкл / быстро / средне / медленно.
+ * Вставить в самый конец файла плагина.
+ */
+(function () {
+  'use strict';
+  if (window.oldx_glide_ready) return;
+  window.oldx_glide_ready = true;
+
+  // Время «догоняния» в миллисекундах: меньше = быстрее.
+  var TAU = { fast: 45, mid: 110, slow: 230 };
+  var BORDER = 0.3;   // толщина рамки, em
+  var GAP = 0.2;      // зазор между постером и рамкой, em
+  var IDLE_FRAMES = 14;
+
+  var frame = null, cur = null, shown = false, raf = 0, lastT = 0, idle = 0;
+  var hideTimer = 0, errors = 0, mo = null;
+
+  function log() { try { console.log.apply(console, ['[oldx-glide]'].concat([].slice.call(arguments))); } catch (e) {} }
+
+  function mode() {
+    try {
+      var v = Lampa.Storage.field('oldx_glide');
+      if (v === undefined || v === null || v === '') v = 'mid';
+      v = String(v);
+      return TAU[v] ? v : 'off';
+    } catch (e) { return 'mid'; }
+  }
+
+  var CSS = [
+    '.oldx-glide-frame{position:fixed;left:0;top:0;z-index:3;pointer-events:none;box-sizing:border-box;',
+    'border:' + BORDER + 'em solid #fff;opacity:0;transition:opacity .18s;display:none;will-change:transform,width,height}',
+    'body.oldx-glide .oldx-glide-frame{display:block}',
+    '.oldx-glide-frame.on{opacity:1}',
+    /* прячем стандартную рамку Lampa, пока работает плавная */
+    'body.oldx-glide .card.focus .card__view::after,',
+    'body.oldx-glide .card.hover .card__view::after{opacity:0 !important;border-color:transparent !important;box-shadow:none !important}'
+  ].join('\n');
+
+  function injectCss() {
+    var st = document.createElement('style');
+    st.id = 'oldx-glide-style';
+    st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  function pickTarget() {
+    var list = document.querySelectorAll('.card.focus');
+    for (var i = list.length - 1; i >= 0; i--) {
+      var v = list[i].querySelector('.card__view') || list[i];
+      var r = v.getBoundingClientRect();
+      if (r.width > 4 && r.height > 4) return v;
+    }
+    return null;
+  }
+
+  function blocked() {
+    return !!document.querySelector('.modal, .selectbox, .settings--open');
+  }
+
+  function measure(v) {
+    var r = v.getBoundingClientRect();
+    var fs = parseFloat(getComputedStyle(frame).fontSize) || 16;
+    var out = (GAP + BORDER) * fs;
+    var rad = parseFloat(getComputedStyle(v).borderTopLeftRadius) || 0;
+    return { x: r.left - out, y: r.top - out, w: r.width + out * 2, h: r.height + out * 2, r: rad > 0 ? rad + out : 0 };
+  }
+
+  function apply() {
+    frame.style.transform = 'translate3d(' + cur.x.toFixed(2) + 'px,' + cur.y.toFixed(2) + 'px,0)';
+    frame.style.width = cur.w.toFixed(2) + 'px';
+    frame.style.height = cur.h.toFixed(2) + 'px';
+    frame.style.borderRadius = cur.r.toFixed(2) + 'px';
+  }
+
+  function fadeOut() {
+    frame.classList.remove('on');
+    if (!hideTimer) hideTimer = setTimeout(function () { hideTimer = 0; shown = false; }, 320);
+  }
+
+  function tick(t) {
+    raf = 0;
+    try {
+      var m = mode();
+      if (m === 'off') { fadeOut(); return; }
+      var v = pickTarget();
+      if (!v || blocked()) { fadeOut(); return; }
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
+
+      var tg = measure(v);
+      if (!cur || !shown) {
+        // первое появление: сразу встаём на постер, без «полёта» из угла
+        cur = { x: tg.x, y: tg.y, w: tg.w, h: tg.h, r: tg.r };
+        shown = true;
+        apply();
+        frame.classList.add('on');
+        idle = 0;
+      } else {
+        var dt = Math.min(64, (t - lastT) || 16);
+        var k = 1 - Math.exp(-dt / TAU[m]);
+        cur.x += (tg.x - cur.x) * k;
+        cur.y += (tg.y - cur.y) * k;
+        cur.w += (tg.w - cur.w) * k;
+        cur.h += (tg.h - cur.h) * k;
+        cur.r = tg.r;
+        var d = Math.abs(tg.x - cur.x) + Math.abs(tg.y - cur.y) + Math.abs(tg.w - cur.w) + Math.abs(tg.h - cur.h);
+        if (d < 0.4) { cur.x = tg.x; cur.y = tg.y; cur.w = tg.w; cur.h = tg.h; idle++; } else idle = 0;
+        apply();
+        frame.classList.add('on');
+      }
+      lastT = t;
+      if (idle < IDLE_FRAMES) raf = requestAnimationFrame(tick);
+    } catch (e) {
+      log('error', e);
+      if (++errors >= 5) {
+        log('too many errors, disabled');
+        document.body.classList.remove('oldx-glide');
+        try { Lampa.Storage.set('oldx_glide', 'off'); } catch (x) {}
+      }
+    }
+  }
+
+  function kick() {
+    idle = 0;
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+
+  function applyMode() {
+    var on = mode() !== 'off';
+    document.body.classList.toggle('oldx-glide', on);
+    if (!on && frame) frame.classList.remove('on');
+    kick();
+  }
+
+  function addSettings() {
+    try {
+      Lampa.SettingsApi.addParam({
+        component: 'oldui',
+        param: {
+          name: 'oldx_glide',
+          type: 'select',
+          values: { off: 'Выключено', fast: 'Быстро', mid: 'Средне', slow: 'Медленно' },
+          default: 'mid'
+        },
+        field: {
+          name: 'Плавная рамка выделения',
+          description: 'Белая рамка плавно перетекает на выбранный постер, а не прыгает'
+        },
+        onChange: applyMode
+      });
+    } catch (e) { log('settings', e); }
+  }
+
+  function start() {
+    try {
+      injectCss();
+      frame = document.createElement('div');
+      frame.className = 'oldx-glide-frame';
+      document.body.appendChild(frame);
+      addSettings();
+
+      // следим за сменой фокуса у карточек
+      mo = new MutationObserver(function (recs) {
+        for (var i = 0; i < recs.length; i++) {
+          var t = recs[i].target;
+          if (t && t.classList && (t.classList.contains('card') || t.classList.contains('activity'))) { kick(); return; }
+        }
+      });
+      mo.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+
+      // и по нажатиям/прокрутке/ресайзу
+      window.addEventListener('keydown', kick, true);
+      window.addEventListener('click', kick, true);
+      window.addEventListener('wheel', kick, true);
+      window.addEventListener('resize', kick);
+      window.addEventListener('scroll', kick, true);
+      document.addEventListener('transitionend', kick, true);
+      try { Lampa.Controller.listener.follow('toggle', function () { setTimeout(kick, 30); }); } catch (e) {}
+
+      applyMode();
+      log('ready');
+    } catch (e) { log('start failed', e); }
+  }
+
+  if (window.appready) start();
+  else Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+})();
+
