@@ -1,55 +1,75 @@
+
 (function () {
     'use strict';
 
-    var SITE = 'https://hd6.lordfilm0.lol/';
+    if (window.lordfilm_jump_ready) return;
+    window.lordfilm_jump_ready = true;
 
-    function openSearch(card) {
-        var title = card.original_title || card.title || card.name || '';
-        var year = '';
+    var SITE = 'https://hd6.lordfilm0.lol';
 
-        if (card.release_date) {
-            year = card.release_date.substring(0, 4);
-        } else if (card.first_air_date) {
-            year = card.first_air_date.substring(0, 4);
-        }
+    function startPlugin() {
 
-        var query = title + (year ? ' ' + year : '');
-
-        Lampa.Platform.open(
-            SITE + '/?do=search&subaction=search&story=' +
-            encodeURIComponent(query)
-        );
-    }
-
-    function addAction() {
-        Lampa.Listener.follow('full', function (event) {
-            if (event.type !== 'complite') return;
-
-            var card = event.data.movie;
-            if (!card) return;
-
-            Lampa.Listener.follow('menu', function (menuEvent) {
-                if (menuEvent.type !== 'open') return;
-            });
+        Lampa.Lang.add({
+            lordfilm_watch: {
+                ru: 'Смотреть на Lordfilm',
+                en: 'Watch on Lordfilm'
+            }
         });
-    }
 
-    function init() {
-        if (!window.Lampa) return;
+        Lampa.Manifest.plugins = {
+            type: 'video',
+            version: '1.1.0',
+            name: 'Lordfilm',
+            description: 'Открытие фильма на сайте Lordfilm',
 
-        Lampa.Component.add('lordfilm_jump', function () {
-            return {
-                create: function () {
-                    this.activity = Lampa.Activity.active();
+            onContextMenu: function (card) {
+                return {
+                    name: Lampa.Lang.translate('lordfilm_watch'),
+                    description: 'Открыть сайт с поиском фильма'
+                };
+            },
+
+            onContextLauch: function (card) {
+
+                var title =
+                    card.title ||
+                    card.name ||
+                    card.original_title ||
+                    card.original_name ||
+                    '';
+
+                var year = '';
+
+                var date = card.release_date || card.first_air_date;
+
+                if (date) {
+                    year = date.substring(0, 4);
                 }
-            };
-        });
 
-        addAction();
+                var query = title;
+
+                if (year) {
+                    query += ' ' + year;
+                }
+
+                var url = SITE +
+                    '/?do=search&subaction=search&story=' +
+                    encodeURIComponent(query);
+
+                Lampa.Platform.open(url);
+            }
+        };
+
+        console.log('[Lordfilm] Plugin loaded');
     }
 
-    if (window.Lampa) init();
-    else {
-        document.addEventListener('lampa:ready', init);
+    if (window.appready) {
+        startPlugin();
+    } else {
+        Lampa.Listener.follow('app', function (event) {
+            if (event.type === 'ready') {
+                startPlugin();
+            }
+        });
     }
 })();
