@@ -1,193 +1,225 @@
+
 (function () {
     'use strict';
 
-    // Lampa Focus Glide — spring-like shared focus frame for poster cards.
-    // Install as a regular Lampa JavaScript plugin.
-    if (window.__lampa_focus_glide_loaded) return;
-    window.__lampa_focus_glide_loaded = true;
+    if (window.__lampa_focus_glide_v2) return;
 
-    var STYLE_ID = 'lampa-focus-glide-style';
-    var FRAME_ID = 'lampa-focus-glide-frame';
+    // Убираем предыдущую версию плагина
+    if (window.LampaFocusGlide &&
+        typeof window.LampaFocusGlide.destroy === 'function') {
+        try {
+            window.LampaFocusGlide.destroy();
+        } catch (e) {}
+    }
 
-    var style = `
+    window.__lampa_focus_glide_v2 = true;
+
+    var STYLE_ID = 'lampa-focus-glide-v2-style';
+    var FRAME_ID = 'lampa-focus-glide-v2-frame';
+
+    var css = `
+        /* Убираем мгновенно перескакивающую штатную рамку */
+        .card.focus .card__view::after {
+            opacity: 0 !important;
+        }
+
+        /* Единая плавающая рамка */
         #${FRAME_ID} {
             position: fixed;
             left: 0;
             top: 0;
             width: 1px;
             height: 1px;
+
             box-sizing: border-box;
             pointer-events: none !important;
             z-index: 99999;
+
             opacity: 0;
-            border: 2px solid rgba(255,255,255,.96);
-            border-radius: 9px;
-            background: rgba(255,255,255,.035);
+            border: 3px solid #fff;
+            border-radius: 22px;
+
+            background: rgba(255,255,255,0.025);
+
             box-shadow:
-                0 0 0 1px rgba(255,255,255,.12),
-                0 5px 22px rgba(0,0,0,.22),
-                inset 0 0 0 1px rgba(255,255,255,.12);
-            transform: translate3d(-200vw,-200vh,0) scale(1);
+                0 0 0 1px rgba(255,255,255,0.12),
+                0 5px 22px rgba(0,0,0,0.22);
+
+            transform: translate3d(-200vw,-200vh,0);
+
             transform-origin: center center;
+
             transition:
-                transform 360ms cubic-bezier(.18, 1.32, .32, 1),
-                width 220ms cubic-bezier(.2,.8,.2,1),
-                height 220ms cubic-bezier(.2,.8,.2,1),
-                border-radius 220ms ease,
-                opacity 130ms ease;
+                transform 230ms cubic-bezier(.22,.61,.36,1),
+                width 190ms cubic-bezier(.22,.61,.36,1),
+                height 190ms cubic-bezier(.22,.61,.36,1),
+                border-radius 190ms ease,
+                opacity 100ms ease;
+
             will-change: transform, width, height;
-        }
-
-        #${FRAME_ID}.is-visible {
-            opacity: 1;
-        }
-
-        #${FRAME_ID}.is-moving {
-            box-shadow:
-                0 0 0 1px rgba(255,255,255,.16),
-                0 7px 25px rgba(0,0,0,.25),
-                inset 0 0 0 1px rgba(255,255,255,.15);
-        }
-
-        .lampa-focus-glide-card {
-            transition: transform 220ms cubic-bezier(.2,.8,.2,1) !important;
-            transform: scale(1.045);
-            transform-origin: center center;
-            z-index: 2;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            #${FRAME_ID}, .lampa-focus-glide-card {
-                transition-duration: 1ms !important;
-            }
         }
     `;
 
-    function injectStyle() {
-        if (document.getElementById(STYLE_ID)) return;
-
-        var node = document.createElement('style');
-        node.id = STYLE_ID;
-        node.textContent = style;
-
-        (document.head || document.documentElement).appendChild(node);
-    }
-
-    function findFocusedCard() {
-        var candidates = document.querySelectorAll(
-            '.card.focus, .card--small.focus, .card--wide.focus, .card--collection.focus, .selector.focus'
-        );
-
-        for (var i = candidates.length - 1; i >= 0; i--) {
-            var el = candidates[i];
-            var rect = el.getBoundingClientRect();
-
-            if (
-                rect.width > 12 &&
-                rect.height > 12 &&
-                rect.bottom > 0 &&
-                rect.right > 0 &&
-                rect.top < window.innerHeight &&
-                rect.left < window.innerWidth
-            ) {
-                return el;
-            }
-        }
-
-        return null;
-    }
-
-    function getRadius(card) {
-        var value = window.getComputedStyle(card).borderRadius;
-        return value && value !== '0px' ? value : '9px';
-    }
-
     function init() {
-        if (!document.body || document.getElementById(FRAME_ID)) return;
+        if (!document.body) return;
+        if (document.getElementById(FRAME_ID)) return;
 
-        injectStyle();
+        var style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = css;
+
+        document.head.appendChild(style);
 
         var frame = document.createElement('div');
         frame.id = FRAME_ID;
+
         document.body.appendChild(frame);
 
-        var currentCard = null;
         var raf = 0;
-        var hideTimer = 0;
+        var visible = false;
+        var observer;
+
+        function number(value, fallback) {
+            var result = parseFloat(value);
+            return isNaN(result) ? fallback : result;
+        }
+
+        // Ищем именно выбранный постер
+        function findFocusedCard() {
+            var cards = document.querySelectorAll('.card.focus');
+
+            for (var i = cards.length - 1; i >= 0; i--) {
+                var card = cards[i];
+                var view = card.querySelector('.card__view');
+
+                if (!view) continue;
+
+                var rect = view.getBoundingClientRect();
+
+                if (
+                    rect.width < 12 ||
+                    rect.height < 12 ||
+                    rect.bottom <= 0 ||
+                    rect.right <= 0 ||
+                    rect.top >= window.innerHeight ||
+                    rect.left >= window.innerWidth
+                ) continue;
+
+                return {
+                    view: view,
+                    rect: rect
+                };
+            }
+
+            return null;
+        }
 
         function update() {
             raf = 0;
 
-            var card = findFocusedCard();
+            var target = findFocusedCard();
 
-            if (!card) {
-                if (currentCard) {
-                    currentCard.classList.remove('lampa-focus-glide-card');
-                }
-
-                currentCard = null;
-                frame.classList.remove('is-visible', 'is-moving');
+            if (!target) {
+                frame.style.opacity = '0';
+                visible = false;
                 return;
             }
 
-            var rect = card.getBoundingClientRect();
+            var rect = target.rect;
+            var pseudo;
 
-            if (rect.width < 12 || rect.height < 12) return;
-
-            if (currentCard && currentCard !== card) {
-                currentCard.classList.remove('lampa-focus-glide-card');
+            try {
+                pseudo = window.getComputedStyle(
+                    target.view,
+                    '::after'
+                );
+            } catch (e) {
+                pseudo = null;
             }
 
-            currentCard = card;
-            card.classList.add('lampa-focus-glide-card');
+            // Берём геометрию штатной рамки Lampa
+            var top = pseudo ? number(pseudo.top, -8) : -8;
+            var left = pseudo ? number(pseudo.left, -8) : -8;
+            var right = pseudo ? number(pseudo.right, -8) : -8;
+            var bottom = pseudo ? number(pseudo.bottom, -8) : -8;
 
-            var pad = 4;
-            var width = rect.width + pad * 2;
-            var height = rect.height + pad * 2;
-            var x = rect.left - pad;
-            var y = rect.top - pad;
+            var x = rect.left + left;
+            var y = rect.top + top;
+
+            var width = rect.width - left - right;
+            var height = rect.height - top - bottom;
+
+            if (pseudo) {
+                frame.style.borderWidth =
+                    pseudo.borderTopWidth || '3px';
+
+                frame.style.borderColor =
+                    pseudo.borderTopColor || '#fff';
+
+                frame.style.borderStyle =
+                    pseudo.borderTopStyle || 'solid';
+
+                frame.style.borderRadius =
+                    pseudo.borderRadius || '22px';
+            }
+
+            // Первый показ без движения из-за границ экрана
+            if (!visible) {
+                frame.style.transition = 'none';
+            }
 
             frame.style.width = width + 'px';
             frame.style.height = height + 'px';
-            frame.style.borderRadius = getRadius(card);
 
             frame.style.transform =
-                'translate3d(' + x + 'px,' + y + 'px,0) scale(1.015)';
+                'translate3d(' + x + 'px,' + y + 'px,0)';
 
-            frame.classList.add('is-visible', 'is-moving');
+            frame.style.opacity = '1';
 
-            clearTimeout(hideTimer);
-
-            hideTimer = setTimeout(function () {
-                frame.classList.remove('is-moving');
-            }, 390);
+            if (!visible) {
+                frame.getBoundingClientRect();
+                frame.style.transition = '';
+                visible = true;
+            }
         }
 
         function schedule() {
             if (raf) return;
+
             raf = requestAnimationFrame(update);
         }
 
-        var observer = new MutationObserver(function (records) {
-            for (var i = 0; i < records.length; i++) {
-                if (records[i].attributeName === 'class') {
-                    schedule();
-                    return;
-                }
-            }
-        });
+        // Следим за изменением фокуса Lampa
+        if (typeof MutationObserver !== 'undefined') {
+            observer = new MutationObserver(schedule);
 
-        observer.observe(document.body, {
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class']
-        });
+            observer.observe(document.body, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ['class']
+            });
+        }
 
-        document.addEventListener('focusin', schedule, true);
-        document.addEventListener('hover:focus', schedule, true);
-        document.addEventListener('click', schedule, true);
+        document.addEventListener(
+            'hover:focus',
+            schedule,
+            true
+        );
 
-        window.addEventListener('resize', schedule, { passive: true });
+        document.addEventListener(
+            'focusin',
+            schedule,
+            true
+        );
+
+        document.addEventListener(
+            'click',
+            schedule,
+            true
+        );
+
+        window.addEventListener('resize', schedule);
         window.addEventListener('scroll', schedule, true);
 
         schedule();
@@ -196,62 +228,37 @@
             refresh: schedule,
 
             destroy: function () {
-                observer.disconnect();
+                if (observer) observer.disconnect();
 
-                document.removeEventListener('focusin', schedule, true);
-                document.removeEventListener('hover:focus', schedule, true);
-                document.removeEventListener('click', schedule, true);
+                document.removeEventListener(
+                    'hover:focus', schedule, true
+                );
+
+                document.removeEventListener(
+                    'focusin', schedule, true
+                );
+
+                document.removeEventListener(
+                    'click', schedule, true
+                );
 
                 window.removeEventListener('resize', schedule);
                 window.removeEventListener('scroll', schedule, true);
 
-                clearTimeout(hideTimer);
-
-                if (currentCard) {
-                    currentCard.classList.remove('lampa-focus-glide-card');
-                }
+                if (raf) cancelAnimationFrame(raf);
 
                 frame.remove();
-
-                var css = document.getElementById(STYLE_ID);
-                if (css) css.remove();
+                style.remove();
 
                 delete window.LampaFocusGlide;
-                delete window.__lampa_focus_glide_loaded;
+                delete window.__lampa_focus_glide_v2;
             }
         };
     }
 
-    function waitForLampa() {
-        if (document.body) {
-            init();
-        } else {
-            document.addEventListener('DOMContentLoaded', init, { once: true });
-        }
-    }
-
-    if (window.appready) {
-        waitForLampa();
-    } else if (window.Lampa && window.Lampa.Listener) {
-        window.Lampa.Listener.follow('app', function (event) {
-            if (event.type === 'ready') {
-                waitForLampa();
-            }
-        });
+    if (document.body) {
+        init();
     } else {
-        var attempts = 0;
-
-        var poll = setInterval(function () {
-            attempts++;
-
-            if (document.body && (window.appready || window.Lampa)) {
-                clearInterval(poll);
-                init();
-            } else if (attempts > 80) {
-                clearInterval(poll);
-            }
-        }, 250);
+        document.addEventListener('DOMContentLoaded', init);
     }
 })();
-
-
