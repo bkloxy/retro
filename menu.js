@@ -1,366 +1,257 @@
-
-
 (function () {
     'use strict';
 
-    if (window.person_info_plugin) return;
-    window.person_info_plugin = true;
+    // Lampa Focus Glide — spring-like shared focus frame for poster cards.
+    // Install as a regular Lampa JavaScript plugin.
+    if (window.__lampa_focus_glide_loaded) return;
+    window.__lampa_focus_glide_loaded = true;
 
-    var cache = {};
-    var requests = {};
+    var STYLE_ID = 'lampa-focus-glide-style';
+    var FRAME_ID = 'lampa-focus-glide-frame';
 
-    // ================= НАСТРОЙКИ =================
+    var style = `
+        #${FRAME_ID} {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            box-sizing: border-box;
+            pointer-events: none !important;
+            z-index: 99999;
+            opacity: 0;
+            border: 2px solid rgba(255,255,255,.96);
+            border-radius: 9px;
+            background: rgba(255,255,255,.035);
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,.12),
+                0 5px 22px rgba(0,0,0,.22),
+                inset 0 0 0 1px rgba(255,255,255,.12);
+            transform: translate3d(-200vw,-200vh,0) scale(1);
+            transform-origin: center center;
+            transition:
+                transform 360ms cubic-bezier(.18, 1.32, .32, 1),
+                width 220ms cubic-bezier(.2,.8,.2,1),
+                height 220ms cubic-bezier(.2,.8,.2,1),
+                border-radius 220ms ease,
+                opacity 130ms ease;
+            will-change: transform, width, height;
+        }
 
-    function initSettings() {
-        Lampa.SettingsApi.addParam({
-            component: 'interface',
-            param: {
-                name: 'hide_comments',
-                type: 'trigger',
-                default: false
-            },
-            field: {
-                name: 'Скрыть комментарии',
-                description: 'Убирает блок комментариев в карточке фильма и сериала'
-            },
-            onChange: process
-        });
-    }
+        #${FRAME_ID}.is-visible {
+            opacity: 1;
+        }
 
-    // ================= КОММЕНТАРИИ =================
+        #${FRAME_ID}.is-moving {
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,.16),
+                0 7px 25px rgba(0,0,0,.25),
+                inset 0 0 0 1px rgba(255,255,255,.15);
+        }
 
-    function hideComments() {
-        var hide = Lampa.Storage.field('hide_comments') === true;
+        .lampa-focus-glide-card {
+            transition: transform 220ms cubic-bezier(.2,.8,.2,1) !important;
+            transform: scale(1.045);
+            transform-origin: center center;
+            z-index: 2;
+        }
 
-        $('.items-line').each(function () {
-            var title = $(this).find('.items-line__title').text().trim();
-
-            if (title === 'Комментарии' || title === 'Comments') {
-                $(this).toggle(!hide);
+        @media (prefers-reduced-motion: reduce) {
+            #${FRAME_ID}, .lampa-focus-glide-card {
+                transition-duration: 1ms !important;
             }
-        });
+        }
+    `;
+
+    function injectStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+
+        var node = document.createElement('style');
+        node.id = STYLE_ID;
+        node.textContent = style;
+
+        (document.head || document.documentElement).appendChild(node);
     }
 
-    // ================= ВОЗРАСТ =================
+    function findFocusedCard() {
+        var candidates = document.querySelectorAll(
+            '.card.focus, .card--small.focus, .card--wide.focus, .card--collection.focus, .selector.focus'
+        );
 
-    function calcAge(birth, death) {
-        if (!birth) return null;
+        for (var i = candidates.length - 1; i >= 0; i--) {
+            var el = candidates[i];
+            var rect = el.getBoundingClientRect();
 
-        var b = new Date(birth);
-        var end = death ? new Date(death) : new Date();
-
-        if (isNaN(b.getTime()) || isNaN(end.getTime())) return null;
-
-        var age = end.getFullYear() - b.getFullYear();
-
-        if (
-            end.getMonth() < b.getMonth() ||
-            (
-                end.getMonth() === b.getMonth() &&
-                end.getDate() < b.getDate()
-            )
-        ) {
-            age--;
-        }
-
-        return age >= 0 ? age : null;
-    }
-
-    function plural(n) {
-        var last = n % 10;
-        var lastTwo = n % 100;
-
-        if (last === 1 && lastTwo !== 11) return 'год';
-
-        if (
-            last >= 2 && last <= 4 &&
-            (lastTwo < 12 || lastTwo > 14)
-        ) {
-            return 'года';
-        }
-
-        return 'лет';
-    }
-
-    // ================= WIKIDATA =================
-
-    function getInfo(tmdbId, callback) {
-        tmdbId = String(tmdbId || '').replace(/\D/g, '');
-
-        if (!tmdbId) {
-            callback(null);
-            return;
-        }
-
-        if (Object.prototype.hasOwnProperty.call(cache, tmdbId)) {
-            callback(cache[tmdbId]);
-            return;
-        }
-
-        if (requests[tmdbId]) {
-            requests[tmdbId].push(callback);
-            return;
-        }
-
-        requests[tmdbId] = [callback];
-
-        var query = `
-SELECT ?birth ?death ?height ?heightUnit
-       ?placeLabel ?adminLabel ?countryLabel
-WHERE {
-    ?person wdt:P4985 "${tmdbId}".
-
-    OPTIONAL { ?person wdt:P569 ?birth. }
-    OPTIONAL { ?person wdt:P570 ?death. }
-
-    OPTIONAL {
-        ?person p:P2048 ?heightStatement.
-        ?heightStatement ps:P2048 ?height.
-        OPTIONAL {
-            ?heightStatement psv:P2048/wikibase:quantityUnit ?heightUnit.
-        }
-    }
-
-    OPTIONAL {
-        ?person wdt:P19 ?place.
-        OPTIONAL { ?place wdt:P131 ?admin. }
-        OPTIONAL { ?place wdt:P17 ?country. }
-    }
-
-    SERVICE wikibase:label {
-        bd:serviceParam wikibase:language "ru,en".
-    }
-}
-LIMIT 1`;
-
-        var url =
-            'https://query.wikidata.org/sparql?format=json&query=' +
-            encodeURIComponent(query);
-
-        fetch(url, {
-            headers: {
-                'Accept': 'application/sparql-results+json'
+            if (
+                rect.width > 12 &&
+                rect.height > 12 &&
+                rect.bottom > 0 &&
+                rect.right > 0 &&
+                rect.top < window.innerHeight &&
+                rect.left < window.innerWidth
+            ) {
+                return el;
             }
-        })
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error('Wikidata HTTP ' + response.status);
-            }
+        }
 
-            return response.json();
-        })
-        .then(function (json) {
-            var bindings =
-                json.results && json.results.bindings || [];
+        return null;
+    }
 
-            var b = bindings[0];
-            var info = {};
+    function getRadius(card) {
+        var value = window.getComputedStyle(card).borderRadius;
+        return value && value !== '0px' ? value : '9px';
+    }
 
-            if (b) {
-                info.birth = b.birth ? b.birth.value : null;
-                info.death = b.death ? b.death.value : null;
+    function init() {
+        if (!document.body || document.getElementById(FRAME_ID)) return;
 
-                info.place = b.placeLabel ? b.placeLabel.value : null;
-                info.admin = b.adminLabel ? b.adminLabel.value : null;
-                info.country = b.countryLabel ? b.countryLabel.value : null;
+        injectStyle();
 
-                if (b.height) {
-                    var h = parseFloat(b.height.value);
-                    var unit = b.heightUnit ? b.heightUnit.value : '';
+        var frame = document.createElement('div');
+        frame.id = FRAME_ID;
+        document.body.appendChild(frame);
 
-                    if (/Q174728$/.test(unit)) {
-                        info.height = Math.round(h);
-                    }
-                    else if (/Q11573$/.test(unit)) {
-                        info.height = Math.round(h * 100);
-                    }
-                    else if (/Q218593$/.test(unit)) {
-                        info.height = Math.round(h * 2.54);
-                    }
-                    else if (!unit) {
-                        info.height = Math.round(h <= 3 ? h * 100 : h);
-                    }
+        var currentCard = null;
+        var raf = 0;
+        var hideTimer = 0;
+
+        function update() {
+            raf = 0;
+
+            var card = findFocusedCard();
+
+            if (!card) {
+                if (currentCard) {
+                    currentCard.classList.remove('lampa-focus-glide-card');
                 }
-            }
 
-            cache[tmdbId] = info;
-            finish(info);
-        })
-        .catch(function () {
-            finish(null);
-        });
-
-        function finish(info) {
-            var callbacks = requests[tmdbId] || [];
-
-            delete requests[tmdbId];
-
-            callbacks.forEach(function (fn) {
-                fn(info);
-            });
-        }
-    }
-
-    // ================= КАРТОЧКА АКТЁРА =================
-
-    function personPage() {
-        var act = Lampa.Activity.active();
-
-        if (!act || act.component !== 'actor') return;
-
-        var $page = act.activity && act.activity.render
-            ? act.activity.render()
-            : $(document.body);
-
-        var $name = $page.find('.full-person__name').first();
-
-        if (!$name.length) return;
-
-        var id = act.id ||
-            (act.params && act.params.id) ||
-            (act.object && act.object.id) ||
-            (act.card && act.card.id);
-
-        if (!id) return;
-
-        if ($name.data('pi-loading') || $name.data('pi-done')) return;
-
-        $name.data('pi-loading', true);
-
-        getInfo(id, function (info) {
-            $name.removeData('pi-loading');
-
-            if (!info) {
-                $name.data('pi-done', true);
+                currentCard = null;
+                frame.classList.remove('is-visible', 'is-moving');
                 return;
             }
 
-            $name.data('pi-done', true);
+            var rect = card.getBoundingClientRect();
 
-            var $birthday = $page.find('.full-person__birthday').first();
-            var $place = $page.find('.full-person__place').first();
+            if (rect.width < 12 || rect.height < 12) return;
 
-            // Возраст добавляется в скобках к существующей дате.
-            if (info.birth && $birthday.length) {
-                var age = calcAge(info.birth, info.death);
+            if (currentCard && currentCard !== card) {
+                currentCard.classList.remove('lampa-focus-glide-card');
+            }
 
-                if (age !== null) {
-                    var original = $birthday.data('pi-original');
+            currentCard = card;
+            card.classList.add('lampa-focus-glide-card');
 
-                    if (original === undefined) {
-                        original = $birthday.text().trim();
-                        $birthday.data('pi-original', original);
-                    }
+            var pad = 4;
+            var width = rect.width + pad * 2;
+            var height = rect.height + pad * 2;
+            var x = rect.left - pad;
+            var y = rect.top - pad;
 
-                    var suffix = info.death
-                        ? ' (умер в возрасте ' + age + ' ' + plural(age) + ')'
-                        : ' (' + age + ' ' + plural(age) + ')';
+            frame.style.width = width + 'px';
+            frame.style.height = height + 'px';
+            frame.style.borderRadius = getRadius(card);
 
-                    $birthday.text(original + suffix);
+            frame.style.transform =
+                'translate3d(' + x + 'px,' + y + 'px,0) scale(1.015)';
+
+            frame.classList.add('is-visible', 'is-moving');
+
+            clearTimeout(hideTimer);
+
+            hideTimer = setTimeout(function () {
+                frame.classList.remove('is-moving');
+            }, 390);
+        }
+
+        function schedule() {
+            if (raf) return;
+            raf = requestAnimationFrame(update);
+        }
+
+        var observer = new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) {
+                if (records[i].attributeName === 'class') {
+                    schedule();
+                    return;
                 }
-            }
-
-            // Собираем место рождения, не переводя остальную страницу.
-            var location = [];
-
-            if (info.place) location.push(info.place);
-
-            if (
-                info.admin &&
-                info.admin.toLowerCase() !==
-                    (info.place || '').toLowerCase()
-            ) {
-                location.push(info.admin);
-            }
-
-            if (
-                info.country &&
-                info.country.toLowerCase() !==
-                    (info.place || '').toLowerCase() &&
-                info.country.toLowerCase() !==
-                    (info.admin || '').toLowerCase()
-            ) {
-                location.push(info.country);
-            }
-
-            if (location.length && $place.length) {
-                $place.text(location.join(', '));
-            }
-
-            // Отдельный блок дополнительных сведений.
-            var $details = $page.find('.person-info-plugin').first();
-
-            if (!$details.length) {
-                $details = $('<div class="person-info-plugin"></div>').css({
-                    'font-size': '1.1em',
-                    'line-height': '1.6',
-                    'margin-top': '0.3em'
-                });
-
-                if ($place.length) {
-                    $place.after($details);
-                }
-                else if ($birthday.length) {
-                    $birthday.after($details);
-                }
-                else {
-                    $name.after($details);
-                }
-            }
-
-            $details.empty();
-
-            if (location.length && !$place.length) {
-                $('<div></div>')
-                    .text('Место рождения: ' + location.join(', '))
-                    .appendTo($details);
-            }
-
-            if (
-                info.height &&
-                info.height > 0 &&
-                info.height < 300
-            ) {
-                $('<div></div>')
-                    .text('Рост: ' + info.height + ' см')
-                    .appendTo($details);
-            }
-
-            if (!$details.children().length) {
-                $details.remove();
             }
         });
-    }
 
-    // ================= ЗАПУСК =================
-
-    function process() {
-        hideComments();
-        personPage();
-    }
-
-    function start() {
-        initSettings();
-
-        var timer;
-
-        new MutationObserver(function () {
-            clearTimeout(timer);
-            timer = setTimeout(process, 150);
-        }).observe(document.body, {
-            childList: true,
-            subtree: true
+        observer.observe(document.body, {
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class']
         });
 
-        process();
+        document.addEventListener('focusin', schedule, true);
+        document.addEventListener('hover:focus', schedule, true);
+        document.addEventListener('click', schedule, true);
+
+        window.addEventListener('resize', schedule, { passive: true });
+        window.addEventListener('scroll', schedule, true);
+
+        schedule();
+
+        window.LampaFocusGlide = {
+            refresh: schedule,
+
+            destroy: function () {
+                observer.disconnect();
+
+                document.removeEventListener('focusin', schedule, true);
+                document.removeEventListener('hover:focus', schedule, true);
+                document.removeEventListener('click', schedule, true);
+
+                window.removeEventListener('resize', schedule);
+                window.removeEventListener('scroll', schedule, true);
+
+                clearTimeout(hideTimer);
+
+                if (currentCard) {
+                    currentCard.classList.remove('lampa-focus-glide-card');
+                }
+
+                frame.remove();
+
+                var css = document.getElementById(STYLE_ID);
+                if (css) css.remove();
+
+                delete window.LampaFocusGlide;
+                delete window.__lampa_focus_glide_loaded;
+            }
+        };
+    }
+
+    function waitForLampa() {
+        if (document.body) {
+            init();
+        } else {
+            document.addEventListener('DOMContentLoaded', init, { once: true });
+        }
     }
 
     if (window.appready) {
-        start();
-    }
-    else {
-        Lampa.Listener.follow('app', function (event) {
-            if (event.type === 'ready') start();
+        waitForLampa();
+    } else if (window.Lampa && window.Lampa.Listener) {
+        window.Lampa.Listener.follow('app', function (event) {
+            if (event.type === 'ready') {
+                waitForLampa();
+            }
         });
+    } else {
+        var attempts = 0;
+
+        var poll = setInterval(function () {
+            attempts++;
+
+            if (document.body && (window.appready || window.Lampa)) {
+                clearInterval(poll);
+                init();
+            } else if (attempts > 80) {
+                clearInterval(poll);
+            }
+        }, 250);
     }
 })();
+
+
