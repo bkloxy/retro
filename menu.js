@@ -1,20 +1,29 @@
 (function () {
     'use strict';
 
-    // Версия 3: рамка всегда догоняет постер, не зависает посередине ряда
-    if (window.__lampa_focus_glide_v3) return;
+    // Версия 4: плавное движение без прыжков + настройка скорости
+    if (window.__lampa_focus_glide_v4) return;
 
-    // Убираем предыдущие версии
     if (window.LampaFocusGlide &&
         typeof window.LampaFocusGlide.destroy === 'function') {
         try { window.LampaFocusGlide.destroy(); } catch (e) {}
     }
     delete window.__lampa_focus_glide_v2;
+    delete window.__lampa_focus_glide_v3;
 
-    window.__lampa_focus_glide_v3 = true;
+    window.__lampa_focus_glide_v4 = true;
 
     var STYLE_ID = 'lampa-focus-glide-style';
     var FRAME_ID = 'lampa-focus-glide-frame';
+    var SETTING_KEY = 'focus_glide_speed';
+
+    var SPEEDS = {
+        '450': 'Очень медленно',
+        '300': 'Медленно',
+        '200': 'Средне',
+        '120': 'Быстро',
+        '60': 'Очень быстро'
+    };
 
     var css = `
         /* Прячем штатную мгновенную рамку */
@@ -22,7 +31,10 @@
             opacity: 0 !important;
         }
 
-        /* Единая плавающая рамка */
+        /* Плавающая рамка.
+           ВАЖНО: никаких переходов transform/width/height —
+           движение считает JS, иначе рамка «подпрыгивает»
+           при включённой анимации Lampa. */
         #${FRAME_ID} {
             position: fixed;
             left: 0;
@@ -45,14 +57,8 @@
                 0 6px 24px rgba(0,0,0,0.25);
 
             transform: translate3d(-200vw,-200vh,0);
-            transform-origin: center center;
 
-            transition:
-                transform 200ms cubic-bezier(.22,.61,.36,1),
-                width 170ms cubic-bezier(.22,.61,.36,1),
-                height 170ms cubic-bezier(.22,.61,.36,1),
-                border-radius 170ms ease,
-                opacity 100ms ease;
+            transition: opacity 120ms ease;
 
             will-change: transform, width, height;
         }
@@ -60,34 +66,31 @@
 
     var frame = null;
     var styleEl = null;
-    var observer = null;
+
+    // Текущее положение рамки (сглаживается к цели каждый кадр)
+    var cur = { x: 0, y: 0, w: 0, h: 0 };
+    var hasCur = false;
+    var shown = false;
 
     var raf = 0;
-    var visible = false;
-    var followUntil = 0; // до какого момента синхронизируем каждый кадр
+    var lastT = 0;
+    var tau = 200; // мс, меньше = быстрее
 
-    function wake(ms) {
-        followUntil = Math.max(followUntil, performance.now() + ms);
-        if (!raf) raf = requestAnimationFrame(tick);
+    function currentSpeed() {
+        try {
+            var v = window.Lampa && Lampa.Storage &&
+                    Lampa.Storage.get(SETTING_KEY);
+            v = parseInt(v, 10);
+            if (!isNaN(v) && v > 0) return v;
+        } catch (e) {}
+        return 200;
     }
 
-    function tick(now) {
-        raf = 0;
-        update();
-        // Пока идёт анимация прокрутки Lampa — следим за постером каждый кадр.
-        // Именно этого не хватало: раньше рамка обновлялась один раз
-        // и замирала посередине, пока ряд доезжал до места.
-        if (now < followUntil) {
-            raf = requestAnimationFrame(tick);
-        }
-    }
-
-    function findFocusedCard() {
+    function measure() {
         var cards = document.querySelectorAll('.card.focus');
 
         for (var i = cards.length - 1; i >= 0; i--) {
-            var card = cards[i];
-            var view = card.querySelector('.card__view');
+            var view = cards[i].querySelector('.card__view');
             if (!view) continue;
 
             var rect = view.getBoundingClientRect();
@@ -101,91 +104,125 @@
                 rect.left >= window.innerWidth
             ) continue;
 
-            return { view: view, rect: rect };
+            var pseudo = null;
+            try {
+                pseudo = window.getComputedStyle(view, '::after');
+            } catch (e) {}
+
+            var top = -8, left = -8, right = -8, bottom = -8;
+
+            if (pseudo && pseudo.content && pseudo.content !== 'none') {
+                // Компенсация scale, если постер масштабирован
+                var scale = rect.width / (view.offsetWidth || rect.width) || 1;
+                var num = function (v, fb) {
+                    var n = parseFloat(v);
+                    return isNaN(n) ? fb : n * scale;
+                };
+
+                top = num(pseudo.top, -8);
+                left = num(pseudo.left, -8);
+                right = num(pseudo.right, -8);
+                bottom = num(pseudo.bottom, -8);
+            }
+
+            var w = rect.width - left - right;
+            var h = rect.height - top - bottom;
+
+            if (w < 20 || h < 20) return null;
+
+            return {
+                x: rect.left + left,
+                y: rect.top + top,
+                w: w,
+                h: h
+            };
         }
 
         return null;
     }
 
-    function update() {
-        var target = findFocusedCard();
-
-        if (!target) {
-            frame.style.opacity = '0';
-            visible = false;
-            return;
-        }
-
-        var view = target.view;
-        var rect = target.rect;
-
-        var pseudo = null;
-        try {
-            pseudo = window.getComputedStyle(view, '::after');
-        } catch (e) {}
-
-        var top = -8, left = -8, right = -8, bottom = -8;
-        var borderWidth = '3px';
-        var borderColor = '#fff';
-        var borderRadius = '20px';
-
-        if (pseudo && pseudo.content && pseudo.content !== 'none') {
-            // Если постер сейчас масштабирован (transform: scale),
-            // смещения ::after нужно масштабировать так же.
-            var scale = rect.width / (view.offsetWidth || rect.width) || 1;
-            var num = function (v, fb) {
-                var n = parseFloat(v);
-                return isNaN(n) ? fb : n * scale;
-            };
-
-            top = num(pseudo.top, -8);
-            left = num(pseudo.left, -8);
-            right = num(pseudo.right, -8);
-            bottom = num(pseudo.bottom, -8);
-
-            if (parseFloat(pseudo.borderTopWidth) > 0) {
-                borderWidth = pseudo.borderTopWidth;
-                borderColor = pseudo.borderTopColor || '#fff';
-                if (pseudo.borderRadius && pseudo.borderRadius !== '0px') {
-                    borderRadius = pseudo.borderRadius;
-                }
-            }
-        }
-
-        var x = rect.left + left;
-        var y = rect.top + top;
-        var w = rect.width - left - right;
-        var h = rect.height - top - bottom;
-
-        if (w < 20 || h < 20) {
-            frame.style.opacity = '0';
-            visible = false;
-            return;
-        }
-
-        frame.style.borderWidth = borderWidth;
-        frame.style.borderColor = borderColor;
-        frame.style.borderRadius = borderRadius;
-
-        // Первый показ — без анимации из-за границ экрана
-        if (!visible) frame.style.transition = 'none';
-
-        frame.style.width = w + 'px';
-        frame.style.height = h + 'px';
-        frame.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0)';
-        frame.style.opacity = '1';
-
-        if (!visible) {
-            frame.getBoundingClientRect(); // форсируем reflow
-            frame.style.transition = '';
-            visible = true;
-        }
+    function apply() {
+        frame.style.width = cur.w + 'px';
+        frame.style.height = cur.h + 'px';
+        frame.style.transform =
+            'translate3d(' + cur.x + 'px,' + cur.y + 'px,0)';
     }
 
-    function onFocusChange() { wake(600); }
-    function onClick() { wake(400); }
-    function onResize() { wake(300); }
-    function onScroll() { wake(500); }
+    // Главный цикл: каждый кадр тянем рамку к постеру.
+    // Экспоненциальное сглаживание = никаких рывков и прыжков.
+    function loop(now) {
+        raf = requestAnimationFrame(loop);
+
+        var dt = lastT ? Math.min(now - lastT, 100) : 16;
+        lastT = now;
+
+        var t = measure();
+
+        if (!t) {
+            if (shown) {
+                frame.style.opacity = '0';
+                shown = false;
+            }
+            hasCur = false;
+            return;
+        }
+
+        if (!hasCur) {
+            // Первый показ — сразу на месте, без перелёта через экран
+            cur.x = t.x; cur.y = t.y;
+            cur.w = t.w; cur.h = t.h;
+            hasCur = true;
+            apply();
+            if (!shown) { frame.style.opacity = '1'; shown = true; }
+            return;
+        }
+
+        var k = 1 - Math.exp(-dt / tau);
+
+        cur.x += (t.x - cur.x) * k;
+        cur.y += (t.y - cur.y) * k;
+        cur.w += (t.w - cur.w) * k;
+        cur.h += (t.h - cur.h) * k;
+
+        apply();
+        if (!shown) { frame.style.opacity = '1'; shown = true; }
+    }
+
+    function addSetting() {
+        if (!(window.Lampa && Lampa.SettingsApi &&
+              Lampa.SettingsApi.addParam)) return false;
+
+        try {
+            if (Lampa.Storage.get(SETTING_KEY) === undefined &&
+                Lampa.Storage.field) {
+                // значение по умолчанию подтянется из addParam
+            }
+
+            Lampa.SettingsApi.addParam({
+                component: 'interface',
+                param: {
+                    name: SETTING_KEY,
+                    type: 'select',
+                    values: SPEEDS,
+                    default: '200'
+                },
+                field: {
+                    name: 'Скорость рамки выделения',
+                    description: 'Плавность перелёта рамки между постерами'
+                },
+                onChange: function (value) {
+                    var v = (value && value.value !== undefined)
+                        ? value.value : value;
+                    v = parseInt(v, 10);
+                    if (!isNaN(v) && v > 0) tau = v;
+                }
+            });
+
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
 
     function init() {
         if (!document.body) return;
@@ -200,45 +237,30 @@
         frame.id = FRAME_ID;
         document.body.appendChild(frame);
 
-        // Класс И стиль: Lampa двигает ряды через style/transform,
-        // это тоже надо отслеживать, иначе рамка отстаёт.
-        if (typeof MutationObserver !== 'undefined') {
-            observer = new MutationObserver(function () { wake(500); });
-            observer.observe(document.body, {
-                subtree: true,
-                childList: true,
-                attributes: true,
-                attributeFilter: ['class', 'style']
-            });
-        }
+        tau = currentSpeed();
 
-        document.addEventListener('hover:focus', onFocusChange, true);
-        document.addEventListener('focusin', onFocusChange, true);
-        document.addEventListener('click', onClick, true);
-        window.addEventListener('resize', onResize);
-        window.addEventListener('scroll', onScroll, true);
+        // Настройка появится в Интерфейсе,
+        // даже если SettingsApi ещё не готов
+        addSetting();
+        var tries = 0;
+        var timer = setInterval(function () {
+            if (addSetting() || ++tries > 20) clearInterval(timer);
+        }, 1000);
 
-        wake(300);
+        raf = requestAnimationFrame(loop);
 
         window.LampaFocusGlide = {
-            refresh: function () { wake(300); },
+            refresh: function () {},
 
             destroy: function () {
-                if (observer) observer.disconnect();
-
-                document.removeEventListener('hover:focus', onFocusChange, true);
-                document.removeEventListener('focusin', onFocusChange, true);
-                document.removeEventListener('click', onClick, true);
-                window.removeEventListener('resize', onResize);
-                window.removeEventListener('scroll', onScroll, true);
-
-                if (raf) cancelAnimationFrame(raf);
+                cancelAnimationFrame(raf);
+                clearInterval(timer);
 
                 if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
                 if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
 
                 delete window.LampaFocusGlide;
-                delete window.__lampa_focus_glide_v3;
+                delete window.__lampa_focus_glide_v4;
             }
         };
     }
